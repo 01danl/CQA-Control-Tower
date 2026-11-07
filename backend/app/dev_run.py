@@ -1,0 +1,527 @@
+"""Approval-gated, missing-only DEV coordinator. prepare/status never call a model.
+
+Paid execution reuses the existing evaluation service, with API workers stopped
+and exactly one direct evaluation in flight. Benchmark implementation is untouched.
+"""
+
+import argparse
+import hashlib
+import json
+from collections import Counter
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+from sqlalchemy import func, select, text
+
+from app import models as m
+from app.audit_live import planning_reserve
+from app.benchmark import catalog, digest, load, pipeline_hash
+from app.config import Settings
+from app.contracts import EvaluationRequest
+from app.db import make_engine, make_session_factory
+from app.evaluation import enqueue, queue_lock, run_evaluation
+from app.export_results import (
+    MODEL,
+    completed_result,
+    results_for_group,
+    same_context,
+    serialize,
+    source_rows,
+    write_atomic,
+)
+from app.privacy import silence_transport_logs
+from app.providers import OpenAIProvider
+from app.repository import conversation_detail
+from app.rubrics import get_rubric
+
+EVENT = "dev_run_reserved"
+CEILING = Decimal("3.00")
+RUNTIME_KEYS = (
+    "llm_model",
+    "openai_base_url",
+    "llm_timeout_seconds",
+    "http_retries",
+    "retry_backoff_seconds",
+    "max_retry_delay_seconds",
+    "batch_concurrency",
+)
+
+
+class RunError(ValueError):
+    """Only fixed non-sensitive codes are exposed."""
+
+
+def runtime(settings):
+    return {key: getattr(settings, key) for key in RUNTIME_KEYS}
+
+
+def snapshot(source):
+    return digest(conversation_detail(source).model_dump(mode="json", exclude={"audio_url"}))
+
+
+def runner_hash():
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def completed(session, source, rubric):
+    for item in session.scalars(
+        select(m.Evaluation)
+        .where(
+            m.Evaluation.group_id == "DEV",
+            m.Evaluation.conversation_id == source.conversation_id,
+            m.Evaluation.status == "completed",
+        )
+        .order_by(m.Evaluation.created_at.desc(), m.Evaluation.evaluation_id.desc())
+    ):
+        try:
+            if same_context(item, source, rubric):
+                completed_result(session, item, source, rubric)
+                return item
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+            continue
+    return None
+
+
+def reservations(session, hashes):
+    return [
+        event
+        for event in session.scalars(select(m.AuditEvent).where(m.AuditEvent.kind == EVENT))
+        if event.payload.get("plan_hash") in hashes
+    ]
+
+
+def verify_lineage(session, hashes):
+    if any(
+        event.payload.get("plan_hash") not in hashes
+        for event in session.scalars(select(m.AuditEvent).where(m.AuditEvent.kind == EVENT))
+    ):
+        raise RunError("EXISTING_RESERVATIONS_REQUIRE_COMPLETE_RETRY_LINEAGE")
+
+
+def ledger(session, hashes):
+    spent = Decimal(0)
+    unknown, pending = [], []
+    ids = {e.evaluation_id for e in reservations(session, hashes)}
+    for eid in ids:
+        item = session.get(m.Evaluation, eid)
+        if item is None:
+            unknown.append(eid)
+            continue
+        if item.status in {"queued", "running"}:
+            pending.append(eid)
+            continue
+        usage = item.usage or {}
+        cost = usage.get("provider_cost_usd")
+        if (
+            not usage.get("usage_complete")
+            or usage.get("cost_source") != "provider_reported"
+            or type(cost) not in (int, float, str)
+        ):
+            unknown.append(eid)
+            continue
+        charge = Decimal(str(cost))
+        if not charge.is_finite() or charge < 0:
+            unknown.append(eid)
+        else:
+            spent += charge
+    return {
+        "known_spend_usd": str(spent),
+        "unknown_charge_ids": sorted(unknown),
+        "pending_ids": sorted(pending),
+        "reserved_jobs": len(ids),
+    }
+
+
+def validate_prices(prices):
+    if prices["model"] != MODEL or prices["source"] != "https://openrouter.ai/api/v1/models":
+        raise RunError("INVALID_PRICE_SOURCE_OR_MODEL")
+    age = (datetime.now(UTC) - datetime.fromisoformat(prices["fetched_at"])).total_seconds()
+    if not 0 <= age <= 86400:
+        raise RunError("PRICE_SNAPSHOT_EXPIRED")
+    for field in ("input_usd_per_1m", "output_usd_per_1m"):
+        rate = Decimal(prices[field])
+        if not rate.is_finite() or rate <= 0:
+            raise RunError("INVALID_PLANNING_PRICE")
+
+
+def fetch_quota(settings):
+    if not settings.openai_api_key or not settings.openai_api_key.get_secret_value():
+        raise RunError("PROVIDER_KEY_UNAVAILABLE")
+    with httpx.Client(timeout=20, trust_env=False) as client:
+        response = client.get(
+            "https://openrouter.ai/api/v1/key",
+            headers={
+                "Authorization": "Bearer " + settings.openai_api_key.get_secret_value(),
+            },
+        )
+    if response.status_code != 200:
+        raise RunError("OPENROUTER_AUTH_OR_QUOTA_UNAVAILABLE")
+    data = response.json()["data"]
+    quota = {"limit_usd": data.get("limit"), "remaining_usd": data.get("limit_remaining")}
+    for field in quota:
+        if quota[field] is None:
+            raise RunError("CONFIGURE_PROVIDER_KEY_SPEND_LIMIT_BEFORE_RUN")
+        value = Decimal(str(quota[field]))
+        if not value.is_finite() or value < 0:
+            raise RunError("INVALID_PROVIDER_QUOTA")
+        quota[field] = str(value)
+    if Decimal(quota["limit_usd"]) > CEILING:
+        raise RunError("PROVIDER_KEY_LIMIT_EXCEEDS_THREE_DOLLARS")
+    return quota
+
+
+def verify(plan, settings):
+    if digest({k: v for k, v in plan.items() if k != "plan_hash"}) != plan["plan_hash"]:
+        raise RunError("PLAN_TAMPERED")
+    if (
+        plan["pipeline_hash"] != pipeline_hash()
+        or plan["runner_hash"] != runner_hash()
+        or plan["runtime"] != runtime(settings)
+    ):
+        raise RunError("CODE_OR_SETTINGS_CHANGED_REPLAN")
+
+
+def verify_sources(session, plan):
+    sources = source_rows(session, "DEV", "dev")
+    current = {r.conversation_id: snapshot(r) for r in sources}
+    if current != {r["conversation_id"]: r["source_hash"] for r in plan["cases"]}:
+        raise RunError("DEV_SOURCE_CHANGED_REPLAN")
+    if digest(get_rubric(session, "default", 1).model_dump(mode="json")) != plan["rubric_hash"]:
+        raise RunError("RUBRIC_CHANGED_REPLAN")
+
+
+def prepare(session, settings, prices, parent=None, quota=None):
+    if (
+        settings.llm_model != MODEL
+        or settings.openai_base_url.rstrip("/") != "https://openrouter.ai/api/v1"
+    ):
+        raise RunError("EXPECTED_OPENROUTER_MODEL_REQUIRED")
+    validate_prices(prices)
+    if session.scalar(
+        select(func.count())
+        .select_from(m.Evaluation)
+        .where(m.Evaluation.status.in_(["queued", "running"]))
+    ):
+        raise RunError("ACTIVE_JOBS_EXIST_WAIT_DO_NOT_DUPLICATE")
+    sources, _ = results_for_group(session, "DEV", "dev")  # official rubric/exporter checks
+    rubric = get_rubric(session, "default", 1)
+    lineage = []
+    if parent is not None:
+        verify(parent, settings)
+        verify_sources(session, parent)
+        lineage = parent["lineage"] + [parent["plan_hash"]]
+    verify_lineage(session, lineage)
+    charges = ledger(session, lineage)
+    if charges["unknown_charge_ids"] or charges["pending_ids"]:
+        raise RunError("PRIOR_SPEND_UNKNOWN_RECONCILE_BEFORE_RETRY")
+    rates = settings.model_copy(
+        update={
+            "llm_input_price_usd_per_1m": Decimal(prices["input_usd_per_1m"]),
+            "llm_output_price_usd_per_1m": Decimal(prices["output_usd_per_1m"]),
+        }
+    )
+    cases = []
+    durations = []
+    for index, source in enumerate(sources, 1):
+        old = completed(session, source, rubric)
+        reserve = (
+            Decimal(0) if old else planning_reserve(rates, rubric, conversation_detail(source))
+        )
+        cases.append(
+            {
+                "case": index,
+                "conversation_id": source.conversation_id,
+                "source_hash": snapshot(source),
+                "reuse_id": old.evaluation_id if old else None,
+                "reserve_usd": str(reserve),
+            }
+        )
+        if old and old.duration_ms is not None:
+            durations.append(old.duration_ms)
+    plan = {
+        "created_at": datetime.now(UTC).isoformat(),
+        "group": "DEV",
+        "team": "bda2402",
+        "model": MODEL,
+        "runtime": runtime(settings),
+        "runner_hash": runner_hash(),
+        "pipeline_hash": pipeline_hash(),
+        "rubric_hash": digest(rubric.model_dump(mode="json")),
+        "cases": cases,
+        "lineage": lineage,
+        "prices": prices,
+        "provider_quota": quota,
+        "maximum_usd": str(CEILING),
+        "planning_reserve_usd": str(sum(Decimal(r["reserve_usd"]) for r in cases)),
+        "prior_known_spend_usd": charges["known_spend_usd"],
+        "coordinator_concurrency": 1,
+        "duration_samples_ms": durations,
+        "approval": "REQUIRED; estimate is not a provider-enforced hard budget cap",
+    }
+    if Decimal(plan["planning_reserve_usd"]) + Decimal(charges["known_spend_usd"]) > CEILING:
+        raise RunError("PLANNING_EXPOSURE_EXCEEDS_THREE_DOLLARS")
+    if quota is not None and Decimal(plan["planning_reserve_usd"]) > Decimal(
+        quota["remaining_usd"]
+    ):
+        raise RunError("PROVIDER_REMAINING_CREDIT_BELOW_PLANNING_RESERVE")
+    plan["plan_hash"] = digest(plan)
+    return plan
+
+
+def summary(session, plan):
+    _, rows = results_for_group(session, "DEV", "dev")
+    counts = Counter(r["status"] for r in rows)
+    events = reservations(session, [plan["plan_hash"]])
+    failures = []
+    for event in events:
+        item = session.get(m.Evaluation, event.evaluation_id)
+        if item is None or item.status not in {"completed", "queued", "running"}:
+            failures.append(
+                {
+                    "case": event.payload["case"],
+                    "evaluation_id": event.evaluation_id,
+                    "status": item.status if item else "missing",
+                }
+            )
+    durations = plan["duration_samples_ms"]
+    new_count = sum(r["reuse_id"] is None for r in plan["cases"])
+    return {
+        "plan_hash": plan["plan_hash"],
+        "model": MODEL,
+        "source_records": 65,
+        "initial_reuse": 65 - new_count,
+        "planned_new": new_count,
+        "verified_ok": counts["ok"],
+        "remaining": counts["error"],
+        "planning_reserve_usd": plan["planning_reserve_usd"],
+        "maximum_intended_usd": plan["maximum_usd"],
+        "provider_quota_at_prepare": plan["provider_quota"],
+        "runtime": plan["runtime"],
+        "coordinator_concurrency": 1,
+        "estimated_minutes": round(new_count * sum(durations) / len(durations) / 60000, 2)
+        if durations
+        else None,
+        "time_estimate_sample_n": len(durations),
+        "time_estimate_caveat": "Single-coordinator extrapolation; excludes retries, rate limits and manual stops",
+        "ledger": ledger(session, plan["lineage"] + [plan["plan_hash"]]),
+        "failures": failures,
+    }
+
+
+def backend_is_up():
+    try:
+        with httpx.Client(timeout=2, trust_env=False) as client:
+            client.get("http://127.0.0.1:8000/api/v1/health")
+        return True  # Any HTTP response: a competing API process may have workers.
+    except httpx.HTTPError:
+        return False
+
+
+@contextmanager
+def coordinator_lock(factory):
+    with factory() as session:
+        postgres = session.get_bind().dialect.name == "postgresql"
+        if postgres and not session.scalar(text("SELECT pg_try_advisory_lock(782499)")):
+            raise RunError("ANOTHER_DEV_COORDINATOR_IS_ACTIVE")
+        try:
+            yield
+        finally:
+            if postgres:
+                session.execute(text("SELECT pg_advisory_unlock(782499)"))
+
+
+def execute(factory, plan, settings, approval, budget, workers_stopped=False, provider=None):
+    verify(plan, settings)
+    validate_prices(plan["prices"])
+    if (
+        approval != plan["plan_hash"]
+        or not budget.is_finite()
+        or budget != CEILING
+        or Decimal(plan["maximum_usd"]) != budget
+    ):
+        raise RunError("EXPLICIT_MATCHING_PLAN_AND_THREE_DOLLAR_APPROVAL_REQUIRED")
+    if not workers_stopped or backend_is_up():
+        raise RunError("STOP_ALL_API_WORKERS_BEFORE_PAID_EXECUTION")
+    if not settings.openai_api_key or not settings.openai_api_key.get_secret_value():
+        raise RunError("PROVIDER_KEY_UNAVAILABLE")
+    provider = provider or OpenAIProvider(settings)
+    hashes = plan["lineage"] + [plan["plan_hash"]]
+    with coordinator_lock(factory):
+        with factory() as session:
+            verify_lineage(session, hashes)
+            verify_sources(session, plan)
+        for index, row in enumerate(plan["cases"]):
+            with factory() as session:
+                queue_lock(session)
+                source = session.get(m.Conversation, ("DEV", row["conversation_id"]))
+                rubric = get_rubric(session, "default", 1)
+                if source is None or snapshot(source) != row["source_hash"]:
+                    raise RunError("SOURCE_CHANGED_STOP")
+                old = completed(session, source, rubric)
+                event = next(
+                    (
+                        e
+                        for e in reservations(session, [plan["plan_hash"]])
+                        if e.payload["case"] == row["case"]
+                    ),
+                    None,
+                )
+                if old and (event is None or old.evaluation_id == event.evaluation_id):
+                    continue
+                if row["reuse_id"] and old is None:
+                    raise RunError("PREVIOUS_COMPLETION_NO_LONGER_VALID")
+                if backend_is_up():
+                    raise RunError("API_WORKERS_RESTARTED_STOP")
+                charges = ledger(session, hashes)
+                if charges["unknown_charge_ids"]:
+                    raise RunError("SPEND_UNKNOWN_STOP")
+                remaining_reserve = sum(Decimal(r["reserve_usd"]) for r in plan["cases"][index:])
+                if Decimal(charges["known_spend_usd"]) + remaining_reserve > budget:
+                    raise RunError("REMAINING_RESERVE_EXCEEDS_BUDGET_STOP")
+                live_quota = fetch_quota(settings)
+                if remaining_reserve > Decimal(live_quota["remaining_usd"]):
+                    raise RunError("PROVIDER_REMAINING_CREDIT_BELOW_PLANNING_RESERVE")
+                if event is not None:
+                    item = session.get(m.Evaluation, event.evaluation_id)
+                    if item is None or item.status != "queued":
+                        raise RunError(
+                            "RESERVED_JOB_FAILED_RUNNING_OR_INVALID_INSPECT_DO_NOT_RESUBMIT"
+                        )
+                    eid = item.evaluation_id
+                    if charges["pending_ids"] != [eid] or session.scalar(
+                        select(func.count())
+                        .select_from(m.ModelAttempt)
+                        .where(m.ModelAttempt.evaluation_id == eid)
+                    ):
+                        raise RunError("QUEUED_RECEIPT_NOT_SAFE_TO_RESUME")
+                else:
+                    charges = ledger(session, hashes)
+                    if charges["unknown_charge_ids"] or charges["pending_ids"]:
+                        raise RunError("SPEND_UNKNOWN_OR_IN_FLIGHT_STOP")
+                    remaining_reserve = sum(
+                        Decimal(r["reserve_usd"]) for r in plan["cases"][index:]
+                    )
+                    if Decimal(charges["known_spend_usd"]) + remaining_reserve > budget:
+                        raise RunError("REMAINING_RESERVE_EXCEEDS_BUDGET_STOP")
+                    if session.scalar(
+                        select(func.count())
+                        .select_from(m.Evaluation)
+                        .where(m.Evaluation.status.in_(["queued", "running"]))
+                    ):
+                        raise RunError("EXTERNAL_ACTIVE_JOB_STOP")
+                    item = enqueue(
+                        session,
+                        EvaluationRequest(
+                            group_id="DEV",
+                            conversation_id=source.conversation_id,
+                            rubric_id="default",
+                            rubric_version=1,
+                        ),
+                        settings,
+                        commit=False,
+                    )
+                    eid = item.evaluation_id
+                    session.add(
+                        m.AuditEvent(
+                            evaluation_id=eid,
+                            kind=EVENT,
+                            payload={
+                                "plan_hash": plan["plan_hash"],
+                                "case": row["case"],
+                                "source_hash": row["source_hash"],
+                                "model": MODEL,
+                            },
+                        )
+                    )
+                session.commit()  # Durable receipt BEFORE any provider request.
+            run_evaluation(factory, eid, provider, settings)
+            with factory() as session:
+                charges = ledger(session, hashes)
+                item = session.get(m.Evaluation, eid)
+                if (
+                    item.status != "completed"
+                    or charges["unknown_charge_ids"]
+                    or Decimal(charges["known_spend_usd"]) > budget
+                ):
+                    raise RunError("JOB_FAILED_OR_SPEND_UNCERTAIN_STOP_AND_INSPECT")
+        with factory() as session:
+            result = summary(session, plan)
+            if result["ledger"]["unknown_charge_ids"] or result["remaining"]:
+                raise RunError("FINAL_EXPORT_OR_SPEND_NOT_VERIFIED")
+            return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("prepare", "status", "run"))
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / ".dev-run-private/plan.json",
+    )
+    parser.add_argument("--prices-file", type=Path)
+    parser.add_argument("--retry-from", type=Path)
+    parser.add_argument("--approve-plan")
+    parser.add_argument("--max-usd", type=Decimal)
+    parser.add_argument("--workers-stopped", action="store_true")
+    args = parser.parse_args()
+    engine = None
+    try:
+        silence_transport_logs()
+        if args.plan.parent.name != ".dev-run-private":
+            raise RunError("PLAN_MUST_BE_IN_IGNORED_PRIVATE_DIRECTORY")
+        if args.command == "run" and (not args.approve_plan or args.max_usd is None):
+            raise RunError("EXPLICIT_APPROVAL_REQUIRED_BEFORE_ANY_PAID_REQUEST")
+        settings = Settings()
+        engine = make_engine(settings)
+        factory = make_session_factory(engine)
+        if args.command == "prepare":
+            prices = load(args.prices_file) if args.prices_file else catalog(MODEL)
+            with factory() as session:
+                plan = prepare(
+                    session,
+                    settings,
+                    prices,
+                    load(args.retry_from) if args.retry_from else None,
+                    fetch_quota(settings),
+                )
+                result = summary(session, plan)
+            args.plan.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            args.plan.parent.chmod(0o700)
+            write_atomic(args.plan, serialize(plan))  # Exclusive: never erase a reservation plan.
+        else:
+            plan = load(args.plan)
+            verify(plan, settings)
+            if args.command == "run":
+                result = execute(
+                    factory, plan, settings, args.approve_plan, args.max_usd, args.workers_stopped
+                )
+            else:
+                with factory() as session:
+                    verify_sources(session, plan)
+                    result = summary(session, plan)
+        print(json.dumps({"status": "PASS", "operation": args.command, **result}, indent=2))
+        return 0
+    except Exception as error:
+        print(
+            json.dumps(
+                {
+                    "status": "STOPPED",
+                    "code": str(error)
+                    if isinstance(error, RunError)
+                    else "DEV_RUN_CONFIGURATION_OR_CONNECTIVITY_ERROR",
+                    "guidance": "Inspect status and existing receipt; never discard the plan or blindly resubmit.",
+                }
+            )
+        )
+        return 2
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
