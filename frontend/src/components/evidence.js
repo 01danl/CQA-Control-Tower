@@ -1,3 +1,4 @@
+import { msg, setText } from '../i18n.js';
 import { el } from './dom.js';
 export function validEvidence(proof, conversation) {
   if (!Number.isInteger(proof.message_index)) return false;
@@ -8,10 +9,10 @@ export function validEvidence(proof, conversation) {
   return proof.kind === 'expected_missing' ? proof.quote === '' : proof.kind === 'support' && typeof proof.quote === 'string' && Boolean(proof.quote) && message.text.includes(proof.quote);
 }
 export function evidenceLink(proof, conversation, { href, container = () => document } = {}) {
-  if (!validEvidence(proof, conversation)) return el('p', { className: 'warning', text: 'Недостоверная ссылка скрыта. Нужна проверка человеком.' });
+  if (!validEvidence(proof, conversation)) return el('p', { className: 'warning', text: msg("Недостоверная ссылка скрыта. Нужна проверка человеком.") });
   const missing = proof.kind === 'expected_missing';
   const link = el('a', { href: href ?? `#message-${proof.message_index}`, className: 'evidence', 'data-message-index': proof.message_index,
-    text: `${missing ? 'Ожидаемое действие' : `«${proof.quote}»`} · #${proof.message_index} · ${proof.timestamp}${missing && proof.checked_span ? ` · проверены #${proof.checked_span.start_index}–#${proof.checked_span.end_index}` : ''}` });
+    text: msg("{0} · #{1} · {2}{3}", () => (missing ? msg("Ожидаемое действие") : `«${proof.quote}»`), () => (proof.message_index), () => (proof.timestamp), () => (missing && proof.checked_span ? msg(" · проверены #{0}–#{1}", () => (proof.checked_span.start_index), () => (proof.checked_span.end_index)) : '')) });
   if (!href) link.addEventListener('click', (event) => {
     event.preventDefault();
     const scope = container();
@@ -21,7 +22,7 @@ export function evidenceLink(proof, conversation, { href, container = () => docu
       node.classList.remove('highlighted');
       const index = Number(node.id.slice('message-'.length));
       const body = node.querySelector('.message-text');
-      if (body && conversation.transcript[index]) body.textContent = conversation.transcript[index].text;
+      if (body && conversation.transcript[index]) setText(body, conversation.transcript[index].text);
     });
     target.classList.add('highlighted');
     target.scrollIntoView?.({ block: 'center', behavior: 'instant' });

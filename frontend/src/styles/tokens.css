@@ -1,0 +1,43 @@
+/* CQA Studio v7: shared surfaces and semantic colors, scoped to the app. */
+#cqa-app {
+  color-scheme: light;
+  --ink: #173d2c; --muted: #5e705f; --accent: #173d2c; --accent-dark: #28533a;
+  --on-accent: #f5f8ee; --forest: #0b3021; --line: #d7dfce;
+  --surface: #fffef9; --canvas: #f4f5eb; --soft: #f1f4e9; --subtle: #f6f7f0;
+  --input: #fffef9; --strong-line: #b8c8ad; --focus: #895b0e;
+  --green-bg: #e5f0d6; --green-ink: #315833;
+  --blue-bg: #e9eff5; --blue-ink: #325974;
+  --rose-bg: #f9e3e5; --rose-ink: #963545;
+  --amber-bg: #f8ebce; --amber-ink: #795211;
+  --violet-bg: #ebe8f2; --violet-ink: #665577;
+  --grey-bg: #edf0eb; --grey-ink: #536151;
+  --operator-bg: #e2edcf; --operator-border: #6c8b51;
+  --client-bg: #fffefa; --client-border: #6f8595;
+  --bot-bg: #ece9f1; --bot-border: #85639e;
+  --system-bg: #ecede7; --system-border: #76806f;
+  --highlight-bg: #fff0c5; --highlight-border: #9b690f; --mark-bg: #ffdd89; --mark-ink: #372908;
+  --score-bg: #173d2c; --score-ink: #f4f8ed; --score-muted: #c0d4b4; --lime: #c7f568;
+  --shadow: 0 8px 28px #23432906;
+  --font-body: 'Noto Sans', 'Segoe UI', Arial, sans-serif;
+  --font-display: 'Exo 2', 'Noto Sans', 'Segoe UI', Arial, sans-serif;
+}
+#cqa-app[data-theme=dark] {
+  color-scheme: dark;
+  --ink: #e4eddb; --muted: #acbda3; --accent: #c7f568; --accent-dark: #d9f8a4;
+  --on-accent: #173d2c; --forest: #071d15; --line: #314b39;
+  --surface: #10271d; --canvas: #081a13; --soft: #183225; --subtle: #132c20;
+  --input: #0c2017; --strong-line: #50694a; --focus: #c7f568;
+  --green-bg: #263e25; --green-ink: #d1e8b5;
+  --blue-bg: #1a3344; --blue-ink: #adcfe7;
+  --rose-bg: #402731; --rose-ink: #f2a5b0;
+  --amber-bg: #3d3420; --amber-ink: #e5c276;
+  --violet-bg: #302b3c; --violet-ink: #d0c0e5;
+  --grey-bg: #29362e; --grey-ink: #b5c5b5;
+  --operator-bg: #2a412c; --operator-border: #9ab76f;
+  --client-bg: #1a3026; --client-border: #7598b3;
+  --bot-bg: #302b3c; --bot-border: #b494cf;
+  --system-bg: #25312c; --system-border: #9aa996;
+  --highlight-bg: #443b1d; --highlight-border: #e6c164; --mark-bg: #765d1e; --mark-ink: #fff1c4;
+  --score-bg: #1d3c29; --score-ink: #f4f8ed; --score-muted: #c0d4b4;
+  --shadow: 0 8px 28px #00000012;
+}

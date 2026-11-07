@@ -1,3 +1,4 @@
+import { msg } from '../i18n.js';
 // Paginate the existing contract before deriving metrics. Never turn a partial
 // group into a complete business summary.
 export async function loadConversations(api, group, active = () => true) {
@@ -5,14 +6,14 @@ export async function loadConversations(api, group, active = () => true) {
   do {
     if (!active()) return null;
     const page = await api.conversations({ group_id: group, limit: 100, offset: items.length });
-    if (!Number.isInteger(page.total) || page.total < 0 || !Array.isArray(page.items)) throw new Error('Некорректный список диалогов. Обновите страницу.');
-    if (total !== undefined && total !== page.total) throw new Error('Состав группы изменился во время загрузки. Обновите страницу.');
+    if (!Number.isInteger(page.total) || page.total < 0 || !Array.isArray(page.items)) throw new Error(msg('Некорректный список диалогов. Обновите страницу.'));
+    if (total !== undefined && total !== page.total) throw new Error(msg('Состав группы изменился во время загрузки. Обновите страницу.'));
     total = page.total;
     for (const item of page.items) {
-      if (ids.has(item.conversation_id)) throw new Error('В ответе повторяются диалоги. Обновите страницу.');
+      if (ids.has(item.conversation_id)) throw new Error(msg('В ответе повторяются диалоги. Обновите страницу.'));
       ids.add(item.conversation_id); items.push(item);
     }
-    if (items.length > total || (!page.items.length && items.length < total)) throw new Error('Получена только часть группы. Повторите загрузку.');
+    if (items.length > total || (!page.items.length && items.length < total)) throw new Error(msg('Получена только часть группы. Повторите загрузку.'));
   } while (items.length < total);
   return items;
 }
