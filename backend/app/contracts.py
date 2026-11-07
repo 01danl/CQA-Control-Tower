@@ -52,8 +52,16 @@ class SourceConversation(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_formats(self) -> Self:
-        if self.audio_url is not None and urlsplit(self.audio_url).scheme not in {"http", "https"}:
-            raise ValueError("Audio URL must be HTTP(S)")
+        if self.audio_url is not None:
+            audio = urlsplit(self.audio_url)
+            if (
+                audio.scheme not in {"http", "https"}
+                or not audio.hostname
+                or audio.username
+                or audio.password
+            ):
+                raise ValueError("Audio URL must have an HTTP(S) host and no userinfo")
+            _ = audio.port
         for message in self.transcript:
             if self.channel == "agent chat":
                 if not re.fullmatch(r"\d{2,}:[0-5]\d", message.timestamp):

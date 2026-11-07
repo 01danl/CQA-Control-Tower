@@ -50,7 +50,8 @@ environment mapping uses root `.env`; it does not read `backend/.env`.
 | `BATCH_CONCURRENCY` | 1–8 worker threads; default 2 |
 | `MAX_PENDING_EVALUATIONS` | Bounded queued/running jobs; default 1000 |
 | `LLM_TIMEOUT_SECONDS` / `DATASET_TIMEOUT_SECONDS` | Per-request timeout; defaults 30 / 15 seconds |
-| `HTTP_RETRIES` / `RETRY_BACKOFF_SECONDS` | Defaults 2 retries, .5 sec exponential backoff; 429 Retry-After capped at 5 sec |
+| `HTTP_RETRIES` / `RETRY_BACKOFF_SECONDS` | Defaults 2 retries, .5 sec exponential backoff |
+| `MAX_RETRY_DELAY_SECONDS` | Default 5 sec: longer server Retry-After fails safely for later retry; never shorten the server delay |
 
 Additional tuning/base-URL variables apply to the local process; if needed in Compose,
 add them through an explicitly coordinated local override rather than exposing secrets
@@ -100,8 +101,11 @@ The model receives the entire versioned rubric and transcript, with explicit spe
 labels and an instruction/data boundary. It produces strict JSON Schema output; the
 server independently validates IDs, legal steps/enums/N/A, explanations and every
 index/quote. Positive operator outcomes require actual operator support evidence,
-not bot/system actions. Missing actions use an existing expected-point anchor and
-an empty quote. Timestamps/speakers are enriched only from the stored snapshot.
+not bot/system actions. Applicable zero/negative outcomes also require operator
+evidence or a checked missing-action span. Missing actions use an existing expected-point
+anchor, an empty quote and a valid inclusive `checked_span` (start_index/end_index).
+Timestamps/speakers are enriched only from the stored snapshot. Recording URLs are
+omitted from text-model requests and remain available in stored conversation data.
 
 Validation failure triggers **one** complete repair request with sanitized feedback.
 A second failure produces failed/review-needed, empty public results and null scores.
@@ -197,3 +201,16 @@ no Langfuse SDK, account or external trace transmission is required.
 - Appeal, override/uphold, restart, verify original/final scores and audit durability.
 - Interrupt a batch, retry, verify successful matching items were not evaluated again.
 - Coordinate developer B's live API hookup; no frontend/API-contract edits in this branch.
+
+## Reliability audit
+
+See [evaluation audit](../docs/EVALUATION_AUDIT.md) and
+[real-results ledger](../docs/REAL_EVAL_RESULTS.md) for executed regressions and live
+verification gates. The opt-in `python -m app.audit_live --preflight` prints only
+credential-presence flags and exits 2 when live verification is unavailable.
+`--import-dev` verifies two real imports without a model call when configured.
+Paid sampling requires an explicit budget and fresh real-data provenance; supported
+sizes are 3/12/15, with separate expansion approval. There is no automatic full batch.
+Retry counters are separate from repair counts; refusals retain measured usage.
+Restart recovery preserves known attempt tokens and marks unknown in-flight totals
+incomplete instead of estimating them as zero.

@@ -55,7 +55,7 @@ def test_real_http_adapter_structured_schema_full_transcript_and_retry(settings,
     assert "ONLY operator" in SYSTEM_PROMPT
     assert json.loads(body["messages"][1]["content"])[
         "untrusted_conversation"
-    ] == conversation.model_dump(mode="json")
+    ] == conversation.model_dump(mode="json", exclude={"audio_url"})
     assert body["store"] is False
     assert "unit-test-key-do-not-log" not in caplog.text
     assert "UNTRUSTED" not in caplog.text

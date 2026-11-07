@@ -1,4 +1,3 @@
-import json
 import time
 from copy import deepcopy
 from decimal import Decimal
@@ -12,7 +11,8 @@ from app.config import Settings
 from app.contracts import ConversationDetail, EvaluationRequest, RubricDetail
 from app.errors import ServiceError
 from app.evidence import EvidenceError, ModelOutput, validate_evidence
-from app.providers import LLMProvider, ProviderReply
+from app.json_output import parse_model_json, private_output
+from app.providers import LLMProvider, ProviderFailure, ProviderReply
 from app.repository import conversation_detail, decisions, get_conversation, get_evaluation, iso
 from app.rubrics import get_rubric
 from app.scoring import Score, score_evaluation
@@ -64,8 +64,15 @@ def enqueue(
 
 
 def usage_summary(
-    replies: list[ProviderReply], settings: Settings, *, incomplete: bool = False
+    replies: list[ProviderReply],
+    settings: Settings,
+    *,
+    incomplete: bool = False,
+    transport_attempts: int | None = 0,
+    repair_attempts: int = 0,
 ) -> dict:
+    if transport_attempts == 0 and replies:
+        transport_attempts = sum(reply.transport_attempts for reply in replies)
     incomplete = incomplete or any(not r.usage_complete for r in replies)
     known = bool(replies) and all(
         r.input_tokens is not None and r.output_tokens is not None for r in replies
@@ -90,6 +97,11 @@ def usage_summary(
         "estimated_cost_usd": float(cost) if cost is not None else None,
         "usage_complete": known and not incomplete,
         "cost_source": "configured_rates" if cost is not None else "unavailable",
+        "transport_attempts": transport_attempts,
+        "transport_retries": max(0, transport_attempts - max(len(replies), repair_attempts + 1))
+        if transport_attempts is not None
+        else None,
+        "repair_attempts": repair_attempts,
         "input_price_usd_per_1m": float(settings.llm_input_price_usd_per_1m)
         if settings.llm_input_price_usd_per_1m is not None
         else None,
@@ -126,19 +138,26 @@ def run_evaluation(
     score: Score | None = None
     policy_uncertain = False
     unknown_usage = False
+    transport_attempts: int | None = 0
+    generation_calls = 0
     for attempt_number in (1, 2):
         reply: ProviderReply | None = None
         attempt_started = time.monotonic()
         error_code = None
+        attempt_transports: int | None = 0
         try:
+            generation_calls += 1
             reply = provider.generate(rubric, conversation, feedback)
             replies.append(reply)
+            attempt_transports = reply.transport_attempts
+            if transport_attempts is not None:
+                transport_attempts += reply.transport_attempts
             if not reply.complete:
                 raise EvidenceError(
                     ["response incomplete: return all enabled criteria in the output budget"]
                 )
             raw = (
-                json.loads(reply.raw_output)
+                parse_model_json(reply.raw_output)
                 if isinstance(reply.raw_output, str)
                 else reply.raw_output
             )
@@ -161,20 +180,36 @@ def run_evaluation(
                 "message": "Model output failed validation after bounded repair",
                 "details": None,
             }
+        except ProviderFailure as exc:
+            reply = exc.reply
+            attempt_transports = exc.transport_attempts
+            if reply is not None:
+                replies.append(reply)
+            if transport_attempts is not None:
+                transport_attempts += exc.transport_attempts
+            error_code = exc.code
+            error = {"code": exc.code, "message": exc.message, "details": None}
         except ServiceError as exc:
             error_code = exc.code
             error = {"code": exc.code, "message": exc.message, "details": None}
+            if exc.code != "MODEL_NOT_CONFIGURED":
+                transport_attempts = None
+                attempt_transports = None
         except Exception:
             error_code = "PROVIDER_FAILURE"
             error = {"code": error_code, "message": "Evaluation provider failed", "details": None}
+            transport_attempts = None
+            attempt_transports = None
         unknown_usage = unknown_usage or reply is None
         with factory() as session:
             session.add(
                 m.ModelAttempt(
                     evaluation_id=evaluation_id,
                     attempt_number=attempt_number,
-                    raw_output=reply.raw_output if reply else None,
-                    usage=usage_summary([reply], settings) if reply else None,
+                    raw_output=private_output(reply.raw_output) if reply else None,
+                    usage=usage_summary(
+                        [reply] if reply else [], settings, transport_attempts=attempt_transports
+                    ),
                     duration_ms=int((time.monotonic() - attempt_started) * 1000),
                     error_code=error_code,
                 )
@@ -201,7 +236,13 @@ def run_evaluation(
         )
         item.error = error
         item.duration_ms = int((time.monotonic() - started) * 1000)
-        item.usage = usage_summary(replies, settings, incomplete=unknown_usage)
+        item.usage = usage_summary(
+            replies,
+            settings,
+            incomplete=unknown_usage,
+            transport_attempts=transport_attempts,
+            repair_attempts=max(0, generation_calls - 1),
+        )
         session.add(
             m.AuditEvent(
                 evaluation_id=evaluation_id,
@@ -217,6 +258,34 @@ def queue_lock(session: Session) -> None:
         from sqlalchemy import text
 
         session.execute(text("SELECT pg_advisory_xact_lock(484910)"))
+
+
+def preserve_interrupted_usage(session: Session, item: m.Evaluation) -> None:
+    """Keep measured completed attempts, but never price unknown in-flight work as free."""
+    attempts = session.scalars(
+        select(m.ModelAttempt)
+        .where(m.ModelAttempt.evaluation_id == item.evaluation_id)
+        .order_by(m.ModelAttempt.attempt_number)
+    ).all()
+    known = [attempt.usage for attempt in attempts if attempt.usage is not None]
+    if not known:
+        return
+    summary = dict(known[-1])
+    for field in ("input_tokens", "output_tokens"):
+        summary[field] = (
+            sum(usage[field] for usage in known)
+            if len(known) == len(attempts) and all(type(u.get(field)) is int for u in known)
+            else None
+        )
+    summary.update(
+        usage_complete=False,
+        estimated_cost_usd=None,
+        cost_source="unavailable",
+        transport_attempts=None,
+        transport_retries=None,
+        repair_attempts=None,
+    )
+    item.usage = summary
 
 
 def evaluation_detail(session: Session, item: m.Evaluation) -> dict:

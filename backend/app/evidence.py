@@ -1,15 +1,31 @@
 from typing import Literal
 
-from pydantic import Field, StrictBool, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from app.contracts import ConversationDetail, RubricDetail, StrictModel, Value
 from app.scoring import validate_value
 
 
+class CheckedSpan(StrictModel):
+    start_index: StrictInt
+    end_index: StrictInt
+
+
+def _require_nullable_span(schema: dict) -> None:
+    # Accept old stored support evidence locally; real structured output must declare null/range.
+    schema["required"] = list(schema["properties"])
+    schema["properties"]["checked_span"].pop("default", None)
+
+
 class EvidenceDraft(StrictModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_require_nullable_span)
     message_index: StrictInt
     quote: str = Field(max_length=2000)
     kind: Literal["support", "expected_missing"]
+    checked_span: CheckedSpan | None = Field(
+        default=None,
+        description="Inclusive original transcript indices checked for a missing action; required for expected_missing, null otherwise",
+    )
 
 
 class CriterionAnswer(StrictModel):
@@ -37,6 +53,8 @@ def validate_evidence(
     output: ModelOutput, rubric: RubricDetail, conversation: ConversationDetail
 ) -> list[dict]:
     criteria = {criterion.id: criterion for criterion in rubric.criteria if criterion.enabled}
+    if any(message.message_index != index for index, message in enumerate(conversation.transcript)):
+        raise EvidenceError(["conversation: stored message indices must match original order"])
     issues: list[str] = []
     ids = [result.criterion_id for result in output.results]
     if len(set(ids)) != len(ids) or set(ids) != set(criteria):
@@ -66,6 +84,18 @@ def validate_evidence(
                 )
                 continue
             message = conversation.transcript[proof.message_index]
+            span = proof.checked_span
+            if span is not None and not (
+                0
+                <= span.start_index
+                <= proof.message_index
+                <= span.end_index
+                < len(conversation.transcript)
+            ):
+                issues.append(
+                    f"{location}: checked_span must be a valid inclusive range containing the anchor"
+                )
+                continue
             if proof.kind == "support":
                 if not proof.quote or proof.quote not in message.text:
                     issues.append(
@@ -76,6 +106,23 @@ def validate_evidence(
                 if proof.quote != "":
                     issues.append(
                         f"{location}: expected_missing requires an empty quote, never invented words"
+                    )
+                    continue
+                if span is None:
+                    issues.append(
+                        f"{location}: expected_missing requires checked_span identifying the checked turns"
+                    )
+                    continue
+                if (
+                    answer.value != "na"
+                    and any(m.speaker == "operator" for m in conversation.transcript)
+                    and not any(
+                        m.speaker == "operator"
+                        for m in conversation.transcript[span.start_index : span.end_index + 1]
+                    )
+                ):
+                    issues.append(
+                        f"{location}: checked_span must include the operator opportunity, not only bot/system context"
                     )
                     continue
             else:
@@ -92,6 +139,12 @@ def validate_evidence(
         ):
             issues.append(
                 f"{prefix}: positive operator performance/violation requires supporting operator evidence, not bot/system actions"
+            )
+        if answer.value != "na" and not any(
+            p["speaker"] == "operator" or p["kind"] == "expected_missing" for p in evidence
+        ):
+            issues.append(
+                f"{prefix}: applicable operator outcome requires operator evidence or a checked missing-action span"
             )
         normalized.append(
             {
