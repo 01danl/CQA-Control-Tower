@@ -43,6 +43,8 @@ try {
   dom.window.location.hash = `#/conversations/DEV/${encodeURIComponent(ru.conversation_id)}`;
   await until(() => button('Оценить диалог'));
   button('Оценить диалог').click();
+  await until(() => button('Подтвердить платную оценку'));
+  button('Подтвердить платную оценку').click();
   await until(() => latest && ['completed', 'failed'].includes(latest.status), 270000);
   report.evaluation_id = latest.evaluation_id;
   report.status = latest.status;
