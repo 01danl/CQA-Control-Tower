@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30, gt=0, le=120)
     http_retries: int = Field(default=2, ge=0, le=3)
     retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
+    max_retry_delay_seconds: float = Field(default=5, ge=0, le=60)
     batch_concurrency: int = Field(default=2, ge=1, le=8)
     max_pending_evaluations: int = Field(default=1000, ge=1, le=10000)
     worker_poll_seconds: float = Field(default=0.5, gt=0, le=10)

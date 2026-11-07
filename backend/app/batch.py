@@ -11,7 +11,7 @@ from app import models as m
 from app.config import Settings
 from app.contracts import BatchRequest, EvaluationRequest
 from app.errors import not_found
-from app.evaluation import enqueue, queue_lock, run_evaluation
+from app.evaluation import enqueue, preserve_interrupted_usage, queue_lock, run_evaluation
 from app.providers import LLMProvider
 from app.repository import conversation_detail
 from app.rubrics import get_rubric
@@ -141,6 +141,7 @@ def recover_unfinished(factory: sessionmaker[Session], code: str = "SERVER_RESTA
             select(m.Evaluation).where(m.Evaluation.status.in_(["queued", "running"]))
         ).all()
         for item in items:
+            preserve_interrupted_usage(session, item)
             item.status = "failed"
             item.original_score = None
             item.results = []
@@ -216,6 +217,7 @@ class JobRunner:
                     with self.factory() as session:
                         item = session.get(m.Evaluation, evaluation_id) if evaluation_id else None
                         if item and item.status in ("queued", "running"):
+                            preserve_interrupted_usage(session, item)
                             item.status = "failed"
                             item.needs_human_review = True
                             item.error = {

@@ -1,8 +1,10 @@
 """Organizer GET client. Never log URLs, response bodies or HTTP exception strings."""
 
+import math
 import time
 from collections import Counter
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import unquote_plus, urlencode, urlsplit, urlunsplit
 
@@ -16,8 +18,14 @@ from app.privacy import silence_transport_logs
 
 
 def group_url(secret_url: str, group_id: str) -> str:
-    parts = urlsplit(secret_url)
-    if parts.scheme != "https" or not parts.netloc or parts.username or parts.password:
+    try:
+        parts = urlsplit(secret_url)
+        _ = parts.port
+    except ValueError:
+        raise ServiceError(
+            503, "DATASET_NOT_CONFIGURED", "Configure a valid HTTPS dataset endpoint"
+        ) from None
+    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
         raise ServiceError(
             503, "DATASET_NOT_CONFIGURED", "Configure a valid HTTPS dataset endpoint"
         )
@@ -69,10 +77,18 @@ def parse_dataset(payload: object) -> Dataset:
 
 def retry_delay(response: httpx.Response | None, attempt: int, backoff: float) -> float:
     if response is not None:
+        header = response.headers.get("Retry-After", "")
         try:
-            return min(5, max(0, float(response.headers["Retry-After"])))
-        except (KeyError, ValueError):
-            pass
+            delay = float(header)
+            if math.isfinite(delay) and delay >= 0:
+                return delay
+        except ValueError:
+            try:
+                date = parsedate_to_datetime(header)
+                if date.tzinfo is not None:
+                    return max(0, date.timestamp() - time.time())
+            except (ValueError, TypeError, OverflowError):
+                pass
     return min(5, backoff * (2**attempt))
 
 
@@ -130,5 +146,15 @@ class DatasetClient:
                             code,
                             "Dataset temporarily unavailable",
                         )
-                self.sleep(retry_delay(response, attempt, self.settings.retry_backoff_seconds))
+                delay = retry_delay(response, attempt, self.settings.retry_backoff_seconds)
+                if delay > self.settings.max_retry_delay_seconds:
+                    code = (
+                        "DATASET_RATE_LIMITED"
+                        if response is not None and response.status_code == 429
+                        else "DATASET_UNAVAILABLE"
+                    )
+                    raise ServiceError(
+                        503, code, "Dataset requested a later retry; retry the import later"
+                    )
+                self.sleep(delay)
         raise AssertionError("Unreachable retry loop")

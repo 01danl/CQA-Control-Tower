@@ -72,7 +72,14 @@ def test_expected_missing_anchors_existing_real_turn_and_na_has_rationale(sessio
     output["results"][0].update(
         value="no",
         reason="No introduction at expected first operator reply",
-        evidence=[{"message_index": 3, "kind": "expected_missing", "quote": ""}],
+        evidence=[
+            {
+                "message_index": 3,
+                "kind": "expected_missing",
+                "quote": "",
+                "checked_span": {"start_index": 3, "end_index": 3},
+            }
+        ],
     )
     output["results"][2].update(value="na", na_reason="Only general pricing was requested")
     normalized = validate_evidence(ModelOutput.model_validate(output), rubric, conversation)

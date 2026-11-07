@@ -3,6 +3,7 @@
 from typing import Literal
 
 from app.contracts import ConversationDetail, RubricDetail, Status, StrictModel, Value
+from app.evidence import CheckedSpan
 from app.schemas import ErrorBody
 
 
@@ -12,6 +13,7 @@ class Evidence(StrictModel):
     speaker: str
     quote: str
     kind: Literal["support", "expected_missing"]
+    checked_span: CheckedSpan | None = None
 
 
 class ReviewOverride(StrictModel):
@@ -44,6 +46,9 @@ class Usage(StrictModel):
     cost_source: str
     input_price_usd_per_1m: float | None
     output_price_usd_per_1m: float | None
+    transport_attempts: int | None = None
+    transport_retries: int | None = None
+    repair_attempts: int | None = 0
 
 
 class Audit(StrictModel):

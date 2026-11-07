@@ -13,6 +13,7 @@ from app.contracts import ConversationDetail, RubricDetail
 from app.dataset_client import retry_delay
 from app.errors import ServiceError
 from app.evidence import ModelOutput
+from app.json_output import parse_model_json
 from app.privacy import silence_transport_logs
 
 SYSTEM_PROMPT = """You are an evidence-grounded multilingual conversation quality reviewer.
@@ -28,6 +29,9 @@ Positive operator performance or a violation flag requires an operator support q
 bot/system/customer statements cannot stand in for an operator action.
 For a missing action, cite the nearest real expected point (first operator response,
 last turn/system close etc.), use kind=expected_missing and quote=""; explain the absence.
+Declare checked_span with inclusive start_index/end_index of the turns checked for
+that missing action, including the anchor and operator opportunity. Use null for
+support evidence when no checked range is needed. A bot's failure is not an operator's.
 For N/A choose value="na", explain the precise configured na_rule, and cite relevant turns.
 For non-N/A set na_reason=null. Always provide a short reason and evidence per criterion.
 Never score bot/system acts as if the operator performed them. Do not assess audio-only
@@ -48,6 +52,24 @@ class ProviderReply:
     duration_ms: int
     complete: bool = True
     usage_complete: bool = True
+    transport_attempts: int = 1
+
+
+class ProviderFailure(ServiceError):
+    """Safe public failure with private measured reply/attempt metadata."""
+
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        message: str,
+        *,
+        reply: ProviderReply | None = None,
+        transport_attempts: int = 1,
+    ):
+        super().__init__(status, code, message)
+        self.reply = reply
+        self.transport_attempts = transport_attempts
 
 
 class LLMProvider(Protocol):
@@ -98,7 +120,8 @@ class OpenAIProvider:
             )
         content = {
             "rubric": rubric.model_dump(mode="json"),
-            "untrusted_conversation": conversation.model_dump(mode="json"),
+            # Transcript-only evaluation never needs credential-bearing recording URLs.
+            "untrusted_conversation": conversation.model_dump(mode="json", exclude={"audio_url"}),
         }
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -145,17 +168,26 @@ class OpenAIProvider:
                     )
                 except httpx.HTTPError:
                     if attempt == settings.http_retries:
-                        raise ServiceError(
-                            502, "MODEL_UNAVAILABLE", "Model request failed"
+                        raise ProviderFailure(
+                            502,
+                            "MODEL_UNAVAILABLE",
+                            "Model request failed",
+                            transport_attempts=attempt + 1,
                         ) from None
                 else:
                     if response.status_code == 200:
-                        return self._reply(response, started, usage_complete=attempt == 0)
+                        return self._reply(
+                            response,
+                            started,
+                            usage_complete=attempt == 0,
+                            transport_attempts=attempt + 1,
+                        )
                     if response.status_code != 429 and response.status_code < 500:
-                        raise ServiceError(
+                        raise ProviderFailure(
                             502,
                             "MODEL_HTTP",
                             "Model rejected the request; check server configuration",
+                            transport_attempts=attempt + 1,
                         )
                     if attempt == settings.http_retries:
                         code = (
@@ -163,42 +195,90 @@ class OpenAIProvider:
                             if response.status_code == 429
                             else "MODEL_UNAVAILABLE"
                         )
-                        raise ServiceError(
+                        raise ProviderFailure(
                             503 if response.status_code == 429 else 502,
                             code,
                             "Model temporarily unavailable",
+                            transport_attempts=attempt + 1,
                         )
-                self.sleep(retry_delay(response, attempt, settings.retry_backoff_seconds))
+                delay = retry_delay(response, attempt, settings.retry_backoff_seconds)
+                if delay > settings.max_retry_delay_seconds:
+                    code = (
+                        "MODEL_RATE_LIMITED"
+                        if response is not None and response.status_code == 429
+                        else "MODEL_UNAVAILABLE"
+                    )
+                    raise ProviderFailure(
+                        503,
+                        code,
+                        "Model requested a later retry; retry the run later",
+                        transport_attempts=attempt + 1,
+                    )
+                self.sleep(delay)
         raise AssertionError("Unreachable retry loop")
 
     @staticmethod
     def _reply(
-        response: httpx.Response, started: float, *, usage_complete: bool = True
+        response: httpx.Response,
+        started: float,
+        *,
+        usage_complete: bool = True,
+        transport_attempts: int = 1,
     ) -> ProviderReply:
+        reply: ProviderReply | None = None
         try:
             payload = response.json()
-            choice = payload["choices"][0]
-            message = choice["message"]
-            raw = message.get("content")
-            if message.get("refusal"):
-                raise ServiceError(502, "MODEL_REFUSAL", "Model refused the evaluation")
-            if not isinstance(raw, str):
-                raise ValueError("Missing content")
-            try:
-                raw = json.loads(raw)
-            except ValueError:
-                pass  # Preserve malformed raw output privately for bounded repair.
-            if not isinstance(raw, (str, dict)):
-                raw = json.dumps(raw)
-            usage = payload.get("usage") or {}
+            if not isinstance(payload, dict):
+                raise ValueError("Completion must be an object")
+            model = payload.get("model")
+            if not isinstance(model, str) or not model:
+                raise ValueError("Missing model")
+            usage = payload.get("usage")
+            if usage is None:
+                usage = {}
+            if not isinstance(usage, dict):
+                raise ValueError("Invalid usage")
             input_tokens, output_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
             if type(input_tokens) is not int or input_tokens < 0:
                 input_tokens = None
             if type(output_tokens) is not int or output_tokens < 0:
                 output_tokens = None
-            model = payload.get("model")
-            if not isinstance(model, str) or not model:
-                raise ValueError("Missing model")
+            reply = ProviderReply(
+                raw_output=response.text,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                complete=False,
+                usage_complete=usage_complete,
+                transport_attempts=transport_attempts,
+            )
+            choice = payload["choices"][0]
+            if not isinstance(choice, dict):
+                raise ValueError("Invalid choice")
+            message = choice["message"]
+            if not isinstance(message, dict):
+                raise ValueError("Invalid message")
+            raw = message.get("content")
+            if message.get("refusal"):
+                from dataclasses import replace
+
+                reply = replace(reply, raw_output={"refusal": message["refusal"]})
+                raise ProviderFailure(
+                    502,
+                    "MODEL_REFUSAL",
+                    "Model refused the evaluation",
+                    reply=reply,
+                    transport_attempts=transport_attempts,
+                )
+            if not isinstance(raw, str):
+                raise ValueError("Missing content")
+            try:
+                raw = parse_model_json(raw)
+            except ValueError:
+                pass  # Preserve malformed raw output privately for bounded repair.
+            if not isinstance(raw, (str, dict)):
+                raw = json.dumps(raw)
             return ProviderReply(
                 raw_output=raw,
                 model=model,
@@ -207,8 +287,13 @@ class OpenAIProvider:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 complete=choice.get("finish_reason") == "stop",
                 usage_complete=usage_complete,
+                transport_attempts=transport_attempts,
             )
-        except (ValueError, TypeError, KeyError, IndexError):
-            raise ServiceError(
-                502, "MODEL_RESPONSE", "Model returned a malformed response"
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+            raise ProviderFailure(
+                502,
+                "MODEL_RESPONSE",
+                "Model returned a malformed response",
+                reply=reply,
+                transport_attempts=transport_attempts,
             ) from None
