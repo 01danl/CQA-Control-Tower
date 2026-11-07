@@ -1,43 +1,42 @@
-# Frontend boundary — frozen API v1
+# Frontend boundary — frozen REST v1
 
-Source of truth: `../docs/02_API_CONTRACT.md`. Runtime is plain JavaScript; shared
-shapes are documented with JSDoc in `src/contracts.js`. Never put secrets in a
-`VITE_` variable; every such value is public build input.
+Authoritative source: `../docs/02_API_CONTRACT.md`. JSDoc: `src/contracts.js`.
+`src/api.js` is the only network boundary. `VITE_API_MODE=mock|live`, optional public
+`VITE_API_BASE_URL` (default `/api/v1`). Health is always real; all business requests
+select the same adapter. Failed live requests never fall back to synthetic data.
 
-`src/api.js` is the sole HTTP wrapper. Default `mode: 'mock'`; use
-`VITE_API_MODE=live npm run dev` for backend business reads. API prefix `/api/v1`;
-the wrapper preserves `{error:{code,message,details}}`, URL-encodes path/query values,
-and exposes network/invalid-JSON errors to the UI without a mock fallback.
+| Methods | Contract endpoint |
+| --- | --- |
+| health | GET /health |
+| importGroup | POST /imports |
+| conversations, conversation | GET /conversations, /conversations/{id} |
+| evaluations, evaluation, evaluate | GET /conversations/{id}/evaluations, GET /evaluations/{id}, POST /evaluations |
+| rubrics, rubric, saveRubric | GET /rubrics, GET /rubrics/{id}?version=, POST /rubrics, PUT /rubrics/{id} |
+| startBatch, batch | POST /batches, GET /batches/{id} |
+| appeals, appeal, resolve | GET /appeals?status=, POST /appeals, POST /appeals/{id}/resolve |
 
-| Adapter method | Frozen read endpoint | Mock coverage |
-| --- | --- | --- |
-| `health()` | `GET /health` | Always real HTTP |
-| `conversations({group_id,limit,offset})` | `GET /conversations` | Group, limit, offset |
-| `conversation(id, group_id)` | `GET /conversations/{id}` | Synthetic fixtures only |
-| `evaluations(id, group_id)` | `GET /conversations/{id}/evaluations` | Synthetic history |
-| `evaluation(id)` | `GET /evaluations/{id}` | One completed synthetic evaluation |
-| `rubrics()` | `GET /rubrics` | One synthetic rubric |
-| `rubric(id, version)` | `GET /rubrics/{id}?version=...` | Exact version; others 404 |
+Every method has mock coverage. Fixtures are invented, with no model usage claims.
+Synthetic writes persist only in browser localStorage. Reviewer transitions and
+score calculation are simulated in the mock service, never in view components.
+Only API totals are rendered. Errors retain status/code/message/details.
 
-Result statuses `queued/running/completed/failed` all render. Pending and failed states
-do not show a completed score. Refresh/retry is explicit; polling is deferred.
-Snapshot names, allowed outcomes and weights come from data rather than C01–C08 UI
-constants. Scores/weighted points are displayed, not recomputed in JavaScript.
+Conversations are loaded through contract pagination before local search/filtering.
+When summary status is absent, the latest evaluation supplies it; failed lookups
+show unknown status rather than a fabricated completed result. Polling stops on
+navigation/unmount; failed polling exposes retry and never fabricates a score.
 
-The fixtures are invented, not organizer DEV records: group `SYNTHETIC`, three RU/KZ/EN
-conversations, a **single illustrative criterion** and static example score. `usage: null`
-honestly indicates unavailable measurement. `rubric_snapshot` carries the immutable
-snapshot required by the product spec; the contract summary is non-exhaustive. For a
-response without that field, fetch the evaluation's exact `rubric_id`/`rubric_version`.
-The contract does not fully specify rubric summary names or appeal audit fields; the
-JSDoc aliases are documentation groundwork, not a unilateral contract extension.
+Criteria names, sections, weights and legal values come from exact rubric versions
+or evaluation snapshots. The editor validates before an explicit save confirmation;
+server validation is authoritative. No enabled field is added: excluding a criterion
+only affects the newly saved version. Old snapshots remain intact.
 
-Mutation endpoints (imports, rubric save, evaluation/batch submission, appeals and
-resolution) are not wired in bootstrap. Unknown reads return 404, mock mutations 501;
-there are no fake successful jobs. Add typed-by-documentation adapter methods alongside
-developer A's implementations and matching tests during integration.
+Evidence must reference an existing zero-based transcript turn and match its original
+timestamp/speaker. Support quotes must be exact substrings; expected_missing cannot
+contain an invented quote. Invalid evidence is hidden with a human-review warning.
+HTTP(S) audio is rendered only if supplied; absent audio is disclosed. Hash links
+scroll/focus/highlight without replacing the application route.
 
-Evidence links target `#message-{index}` within the current view using scroll/focus,
-without replacing the hash route. Untrusted strings use `textContent`. Invalid index,
-quote, timestamp or speaker hides the citation with a review notice. Voice-call audio
-supports HTTP(S) player URLs; no transcript-based acoustic judgment is made.
+Appeal queue filters open/resolved; decisions use only legal allowed_values or na
+when permitted. Uphold sends no new_value. The resolution response is followed by
+refetching evaluation data. Optional review_override decision metadata is rendered
+without assuming an undocumented audit feed or endpoint. No shared schema changed.

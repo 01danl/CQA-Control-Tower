@@ -34,9 +34,9 @@ test('mock evaluation references actual turns and preserves a rubric snapshot', 
   await assert.rejects(api.rubric(rubric.rubric_id, 2), { code: 'NOT_FOUND' });
 });
 
-test('unknown mock paths and mutations do not invent successful responses', async () => {
+test('unknown mock paths and invalid mutations reject', async () => {
   await assert.rejects(mockRequest('/evaluations/missing'), { status: 404 });
-  await assert.rejects(mockRequest('/appeals', { method: 'POST' }), { status: 501 });
+  await assert.rejects(mockRequest('/appeals', { method: 'POST', body: { evaluation_id: 'missing' } }), { status: 404 });
 });
 
 test('live API encodes IDs, uses frozen prefix and preserves error envelope', async () => {

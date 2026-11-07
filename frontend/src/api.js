@@ -7,7 +7,7 @@ export function createApi({ mode = 'mock', baseUrl = '/api/v1', fetchImpl = glob
   async function http(path, { method = 'GET', body, signal } = {}) {
     let response;
     try {
-      response = await fetchImpl(`${baseUrl}${path}`, {
+      response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}${path}`, {
         method, signal, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
@@ -29,13 +29,21 @@ export function createApi({ mode = 'mock', baseUrl = '/api/v1', fetchImpl = glob
   const query = (params) => new URLSearchParams(params).toString();
   return {
     mode,
-    // Readiness is always real, even while the two business views use mock data.
+    // Readiness is always real, even while business workflows use synthetic data.
     health: () => http('/health'),
     conversations: ({ group_id = 'SYNTHETIC', limit = 50, offset = 0 } = {}) =>
       request(`/conversations?${query({ group_id, limit, offset })}`),
     conversation: (id, group_id) => request(`/conversations/${encodeURIComponent(id)}?${query({ group_id })}`),
     evaluation: (id) => request(`/evaluations/${encodeURIComponent(id)}`),
     evaluations: (id, group_id) => request(`/conversations/${encodeURIComponent(id)}/evaluations?${query({ group_id })}`),
+    importGroup: (group_id) => request('/imports', { method: 'POST', body: { group_id } }),
+    evaluate: (body) => request('/evaluations', { method: 'POST', body }),
+    startBatch: (body) => request('/batches', { method: 'POST', body }),
+    batch: (id) => request(`/batches/${encodeURIComponent(id)}`),
+    saveRubric: (id, body) => request(id ? `/rubrics/${encodeURIComponent(id)}` : '/rubrics', { method: id ? 'PUT' : 'POST', body }),
+    appeals: (status = 'open') => request(`/appeals?${query({ status })}`),
+    appeal: (body) => request('/appeals', { method: 'POST', body }),
+    resolve: (id, body) => request(`/appeals/${encodeURIComponent(id)}/resolve`, { method: 'POST', body }),
     rubrics: () => request('/rubrics'),
     rubric: (id, version) => request(`/rubrics/${encodeURIComponent(id)}?${query({ version })}`),
   };
