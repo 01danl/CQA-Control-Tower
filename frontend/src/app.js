@@ -1,75 +1,50 @@
 import { el, errorState } from './components/dom.js';
-import { conversationList } from './components/conversations.js';
-import { evaluationDetail } from './components/evaluation.js';
+import { select, field, button } from './components/forms.js';
+import { conversationsPage } from './pages/conversations.js';
+import { reviewPage } from './pages/review.js';
+import { rubricsPage } from './pages/rubrics.js';
+import { appealsPage } from './pages/appeals.js';
 
-/** UI composition only; no rubric rules, totals or credentials live here. */
 export function mountApp(root, api, windowObject = window) {
-  let renderSequence = 0;
-  let disposed = false;
+  let sequence = 0; let disposed = false; const timers = new Set();
   const content = el('main', { id: 'cqa-content', tabindex: '-1' });
   const health = el('span', { className: 'health', text: 'API: проверка…', role: 'status' });
-  const refresh = el('button', { className: 'button secondary', type: 'button', text: 'Обновить' });
-  const modeLabel = api.mode === 'mock'
-    ? 'DEV / MOCK — синтетические данные. Это пример интерфейса, не результат LLM.'
-    : 'LIVE API — бизнес-эндпоинты подключаются на следующем этапе.';
+  const role = select([['operator', 'Operator'], ['reviewer', 'Reviewer']]);
+  const ctx = { group: api.mode === 'mock' ? 'SYNTHETIC' : 'DEV', role: 'operator', reload: render,
+    navigate: (route) => { if (windowObject.location.hash === route) render(); else windowObject.location.hash = route; } };
+  role.addEventListener('change', () => { ctx.role = role.value; render(); });
   root.replaceChildren(el('div', { className: 'shell' },
-    el('aside', { className: 'sidebar' },
-      el('a', { className: 'brand', href: '#/conversations' },
-        el('span', { className: 'brand-mark', text: 'CQ' }), el('span', { text: 'CQA\nControl Tower' })),
-      el('p', { className: 'nav-label', text: 'КАЧЕСТВО СЕРВИСА' }),
-      el('nav', { 'aria-label': 'Основная навигация' },
-        el('a', { className: 'nav-link', href: '#/conversations', text: '01 / Диалоги' })),
-      el('p', { className: 'sidebar-note', text: 'Каждый вывод —\nс опорой на реплику.' })),
-    el('div', { className: 'workspace' },
-      el('header', { className: 'topbar' }, el('span', { text: 'CQA Control Tower / Foundation' }),
-        el('div', { className: 'topbar-actions' }, health, refresh)),
-      el('div', { className: 'mode-banner', role: 'note', text: modeLabel }), content)));
-
-  async function checkHealth() {
-    try {
-      await api.health();
-      if (!disposed) health.textContent = '● API и БД доступны';
-    } catch {
-      if (!disposed) health.textContent = '○ API / БД недоступны';
-    }
-  }
-
+    el('a', { href: '#cqa-content', className: 'skip-link', text: 'К содержимому' }),
+    el('aside', { className: 'sidebar' }, el('a', { className: 'brand', href: '#/conversations' }, el('span', { className: 'brand-mark', text: 'CQ' }), el('span', { text: 'CQA\nControl Tower' })),
+      el('p', { className: 'nav-label', text: 'КАЧЕСТВО СЕРВИСА' }), el('nav', { 'aria-label': 'Основная навигация' },
+        ...[['conversations', '01 / Диалоги'], ['rubrics', '02 / Чек-листы'], ['appeals', '03 / Апелляции']].map(([path, text]) => el('a', { className: 'nav-link', href: `#/${path}`, text }))),
+      el('p', { className: 'sidebar-note', text: 'Каждый вывод —\nс опорой на реплику.\n\nRU / KZ / EN' })),
+    el('div', { className: 'workspace' }, el('header', { className: 'topbar' }, el('span', { text: 'Рабочее пространство / Контроль качества' }), el('div', { className: 'topbar-actions' }, health, field('Роль', role), button('Обновить', () => { checkHealth(); render(); }, true))),
+      el('div', { className: 'mode-banner', role: 'note', text: api.mode === 'mock' ? 'DEV / MOCK — синтетические данные и демонстрация состояний. Не результат LLM.' : 'LIVE API — данные и оценки backend' }), content)));
+  root.querySelector('.skip-link').addEventListener('click', (e) => { e.preventDefault(); content.focus(); });
+  async function checkHealth() { try { await api.health(); if (!disposed) health.textContent = '● API и БД доступны'; } catch { if (!disposed) health.textContent = '○ API / БД недоступны'; } }
   async function render() {
-    const sequence = ++renderSequence;
-    content.replaceChildren(el('p', { text: 'Загрузка…', role: 'status' }));
+    const run = ++sequence; timers.forEach(clearTimeout); timers.clear();
+    const active = () => !disposed && run === sequence;
+    const localCtx = Object.create(ctx);
+    // Shared selections survive page changes; render-specific guards stop stale polling.
+    const pageCtx = new Proxy(localCtx, { set: (_target, key, value) => { ctx[key] = value; return true; } });
+    Object.assign(localCtx, { active, later: (fn) => { if (!active()) return; const timer = setTimeout(() => { timers.delete(timer); if (active()) fn(); }, 1200); timers.add(timer); } });
+    content.setAttribute('aria-busy', 'true'); content.replaceChildren(el('p', { text: 'Загрузка…', role: 'status' }));
+    const route = windowObject.location.hash || '#/conversations';
+    root.querySelectorAll('.nav-link').forEach((n) => { if (route.startsWith(n.getAttribute('href'))) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
     try {
-      const route = windowObject.location.hash || '#/conversations';
-      let view;
-      if (route === '#/conversations') {
-        const group_id = api.mode === 'mock' ? 'SYNTHETIC' : 'DEV';
-        view = conversationList(await api.conversations({ group_id }));
-      } else if (route.startsWith('#/evaluations/')) {
-        const id = decodeURIComponent(route.slice('#/evaluations/'.length));
-        const evaluation = await api.evaluation(id);
-        const [conversation, rubric] = await Promise.all([
-          api.conversation(evaluation.conversation_id, evaluation.group_id),
-          evaluation.rubric_snapshot ?? api.rubric(evaluation.rubric_id, evaluation.rubric_version),
-        ]);
-        view = evaluationDetail(evaluation, conversation, rubric);
-      } else {
-        view = el('section', { className: 'card' }, el('h1', { text: 'Страница не найдена' }),
-          el('a', { href: '#/conversations', text: 'Перейти к диалогам' }));
-      }
-      if (!disposed && sequence === renderSequence) content.replaceChildren(view);
-    } catch (error) {
-      if (!disposed && sequence === renderSequence) content.replaceChildren(errorState(error, render));
-    }
+      let view; const parts = route.slice(2).split('/').map(decodeURIComponent);
+      if (parts[0] === 'conversations' && parts.length === 1) view = await conversationsPage(api, pageCtx);
+      else if (parts[0] === 'conversations' && parts.length === 3) view = await reviewPage(api, pageCtx, { group: parts[1], id: parts[2] });
+      else if (parts[0] === 'evaluations' && parts[1]) view = await reviewPage(api, pageCtx, { evaluationId: parts[1] });
+      else if (parts[0] === 'rubrics') view = await rubricsPage(api, pageCtx);
+      else if (parts[0] === 'appeals') view = await appealsPage(api, pageCtx);
+      else view = el('section', { className: 'card', text: 'Страница не найдена' }, el('a', { href: '#/conversations', text: 'Все диалоги' }));
+      if (active()) { content.replaceChildren(view); if (ctx.flash) { content.prepend(el('p', { className: 'success', role: 'status', text: ctx.flash })); ctx.flash = ''; } }
+    } catch (error) { if (active()) content.replaceChildren(errorState(error, render)); }
+    finally { if (active()) content.setAttribute('aria-busy', 'false'); }
   }
-  const refreshAll = () => { void checkHealth(); void render(); };
-  refresh.addEventListener('click', refreshAll);
-  windowObject.addEventListener('hashchange', render);
-  void checkHealth();
-  void render();
-  return () => {
-    disposed = true;
-    renderSequence++;
-    refresh.removeEventListener('click', refreshAll);
-    windowObject.removeEventListener('hashchange', render);
-    root.replaceChildren();
-  };
+  windowObject.addEventListener('hashchange', render); checkHealth(); render();
+  return () => { disposed = true; sequence++; timers.forEach(clearTimeout); windowObject.removeEventListener('hashchange', render); root.replaceChildren(); };
 }

@@ -14,7 +14,7 @@ function setup() {
   return { dom, root: document.getElementById('cqa-app') };
 }
 
-test('hash navigation mounts two views and evidence focuses an actual message', async () => {
+test('hash navigation mounts list and review and evidence focuses an actual message', async () => {
   const { dom, root } = setup();
   const api = createApi({ fetchImpl: async () => new Response('{"status":"ok","database":"ok"}') });
   const unmount = mountApp(root, api, dom.window);
@@ -51,7 +51,7 @@ test('untrusted text is escaped, invalid evidence hidden, null score differs fro
   const view = evaluationDetail(item, conversations[0], rubric);
   assert.equal(view.querySelector('img'), null);
   assert.ok(view.textContent.includes('<img src=x onerror=alert(1)>'));
-  assert.equal(view.querySelector('.evidence'), null);
+  assert.equal(view.querySelector('.criterion').querySelector('.evidence'), null);
   assert.match(view.textContent, /Недостоверная ссылка скрыта/);
   assert.equal(view.querySelector('.score').textContent, '—');
   dom.window.close();
