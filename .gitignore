@@ -1,0 +1,39 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+# Downloaded data and local databases/audio
+data/
+datasets/
+downloads/
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+# Tool and build output
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+node_modules/
+dist/
+coverage/
+.cache/
+*.log
+.DS_Store
+.idea/
+.vscode/
