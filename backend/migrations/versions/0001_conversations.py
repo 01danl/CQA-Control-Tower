@@ -1,4 +1,5 @@
 """Initial conversation storage boundary."""
+
 import sqlalchemy as sa
 from alembic import op
 
