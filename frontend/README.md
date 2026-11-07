@@ -93,3 +93,16 @@ real model usage. The import-success test remains a real failure if the dataset 
 not configured. Default Playwright browser is installed Google Chrome; use
 `CQA_BROWSER_CHANNEL=chromium` for installed Playwright Chromium.
 See `../docs/DEMO_PREP_CHECKLIST.md` and `../docs/DEMO_SCRIPT.md`.
+
+## Judge experience
+
+The gross-violation filter distinguishes latest final outcomes, full completed
+history, unassessed records and unknown coverage. Positive findings expose reasons
+and exact evidence links. Four speaker roles and Yes/No/N/A/numeric/reviewer outcomes
+have explicit labels and separate styles. New model/batch submissions require a
+paid-action confirmation; filtering never submits model jobs.
+
+Run unpaid live checks with `CQA_LIVE_AI=0 npm run test:e2e --prefix frontend` from
+the repository root. See [judge audit](../docs/JUDGE_UX_AUDIT.md) and
+[final demo plan](../docs/FINAL_DEMO_PLAN.md). Arbitrary pasted/file transcripts need
+an agreed ingestion endpoint; organizer control groups use the existing import API.
