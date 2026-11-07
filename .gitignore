@@ -39,3 +39,4 @@ coverage/
 .vscode/
 # Private benchmark transcripts, human annotations, raw outputs and approval journals
 .benchmark-private/
+.dev-run-private/
