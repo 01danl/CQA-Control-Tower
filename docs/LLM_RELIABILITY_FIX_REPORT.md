@@ -124,9 +124,17 @@ evidence anchors against actual transcript lengths. DB original-attempt comparis
 passes. No real evaluation was replaced by a test response. File SHA-256 remains:
 15f19fd053899983eeb7274928f474926419b3fa31ac0320f5604636849f85c8.
 
-Historical total recorded spend is $0.041904713, including the smoke evaluation.
-Free authenticated quota GET reports key limit $3 / remaining $2.958095287. These
-are provider-reported figures, not an invoice or a stress test of enforcement.
+Historical total recorded spend was $0.041904713 at this pre-pilot snapshot,
+including the smoke evaluation. Free authenticated quota GET reports key limit $3
+/ remaining $2.958095287. These are provider-reported figures, not an invoice or
+a stress test of enforcement.
+
+> Update 2026-11-08: after the pilot executed, the durable DB ledger sums the
+> eleven fully-measured evaluations to **$0.076380731** (all rows
+> `usage_complete=true`, `cost_source=provider_reported`; no unknown charges).
+> That is the authoritative cumulative figure; the $0.041904713 above is the
+> pre-pilot snapshot only. Stale plan journals that carry smaller prior-spend
+> figures are hash-invalidated and must be re-prepared before any paid run.
 
 | Plan | New evaluations | New reserve | Prior + reserve | Status |
 |---|---:|---:|---:|---|

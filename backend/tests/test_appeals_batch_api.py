@@ -26,6 +26,7 @@ from app.main import create_app
 from app.repository import get_evaluation, import_dataset
 from tests.provider_stub import TestProvider
 from tests.synthetic import dataset_payload
+from tests.test_export_results import seed
 
 
 def completed(session, engine, settings):
@@ -538,3 +539,51 @@ def test_batch_get_is_read_only(session, engine, settings):
     session.expire_all()
     # A GET must not persist derived status; workers and create_batch own writes.
     assert session.get(m.Batch, receipt["batch_id"]).status == "queued"
+
+
+def test_batch_size_cap_bounds_per_post_spend(session, settings):
+    import_dataset(session, "DEV", parse_dataset(dataset_payload()))
+    # Control-hour posture: the operator caps new billable work per POST.
+    settings.max_batch_size = 10
+    with pytest.raises(ServiceError) as error:
+        create_batch(
+            session, BatchRequest(group_id="DEV", rubric_id="default", rubric_version=1), settings
+        )
+    assert error.value.status == 429
+    assert error.value.code == "BATCH_SIZE_LIMIT_EXCEEDED"
+    session.rollback()
+    # Refusal happens before any batch or evaluation row is created.
+    assert session.scalars(select(m.Batch)).all() == []
+    assert session.scalars(select(m.Evaluation)).all() == []
+
+
+def test_batch_size_cap_allows_control_sized_group(session, engine, settings):
+    seed(session, "CONTROL", 10)
+    settings.max_batch_size = 10
+    settings.llm_model = "synthetic-test-provider"
+    receipt = create_batch(
+        session, BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1), settings
+    )
+    session.commit()
+    state = progress(session, receipt["batch_id"])
+    assert (state["total"], state["pending"]) == (10, 10)
+
+
+def test_batch_size_cap_does_not_block_completed_idempotent_return(session, engine, settings):
+    seed(session, "CONTROL", 10)
+    settings.max_batch_size = 10
+    settings.llm_model = "synthetic-test-provider"
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    first = create_batch(session, request, settings)
+    session.commit()
+    with make_session_factory(engine)() as run_session:
+        ids = run_session.scalars(
+            select(m.BatchItem.evaluation_id).where(m.BatchItem.batch_id == first["batch_id"])
+        ).all()
+    for evaluation_id in ids:
+        run_evaluation(make_session_factory(engine), evaluation_id, TestProvider(), settings)
+    session.expire_all()
+    # A repeated equivalent request returns the same batch regardless of the cap.
+    second = create_batch(session, request, settings)
+    session.commit()
+    assert second == {"batch_id": first["batch_id"], "status": "completed"}

@@ -115,3 +115,50 @@ regression.
 - Evidence upper bounds in CI are still limited to source-identity checks;
   bounds are proven locally via the transcript reference + `verify_submission_db`.
 - Branch protection / hosted-CI blocking behavior remains unverifiable locally.
+
+## 6. Release-blocker review round (2026-11-08)
+
+Verification-only round; no scope expansion. Outcomes:
+
+1. **Budget accounting corrected.** The durable DB ledger establishes the
+   complete historical amount: eleven evaluations, all `usage_complete=true`
+   with `cost_source=provider_reported`, summing to **$0.076380731** — nothing
+   invented, nothing reset, no unknown charges. `$0.041904713` was the
+   pre-pilot snapshot; `DEV_CONTINUATION_RUNBOOK.md` now carries the
+   DB-verified figure and `LLM_RELIABILITY_FIX_REPORT.md` gained a dated
+   annotation. Stale plan journals carrying smaller figures are
+   hash-invalidated; the next free `prepare` recomputes the ledger.
+2. **API batch spend gap documented and bounded.** The approval-gated $3
+   plan/ledger does NOT apply to `POST /api/v1/batches`. New settings guard
+   `MAX_BATCH_SIZE` (default 100 preserves the demo's DEV-scale batch; the
+   control hour sets 10) refuses oversized batches *before any spend* with
+   429 `BATCH_SIZE_LIMIT_EXCEEDED`; idempotent returns bypass the cap.
+   Frozen contract unchanged (same request/response shapes; refusal uses the
+   documented error envelope). Unknown-cost history is never priced as zero.
+3. **Runbook validated from a fresh shell + full offline simulation.** Fixed a
+   working-directory bug (`-m app.dev_run` must run from `backend/`) and a
+   reproducible defect the simulation caught
+   (`generate_submission_reference.py` crashed on non-Postgres isolation
+   levels — now dialect-aware). Simulated end-to-end in a throwaway sqlite DB
+   with synthetic data and a stub provider: import → batch(10, capped) →
+   evaluate → check-only → export → validate → reference generation
+   (transcripts) → `verify_submission_db` (provenance/source_ids/bounds PASS) →
+   final gate (all four rows PASS). No paid calls, no fake published results,
+   no Git pushes; the official artifact stayed byte-identical.
+4. **Relax flag verified OFF by default** in code defaults, in the real env
+   files (unset), and pinned in plan `RUNTIME_KEYS`; a new regression test
+   proves a default-flag output-limit repair sends no `reasoning` key at all.
+
+Tests after corrections: backend SQLite **289 passed, 2 skipped**; PostgreSQL
+**291 passed**; ruff PASS; mypy PASS; scripts suite **OK**; drill
+SIMULATION_PASS; delivery check PASS (source_ids PASS); DB verification PASS
+(sha `9c1e9bed…` unchanged).
+
+## 7. Cumulative spending (authoritative)
+
+| Figure | Value | Provenance |
+| --- | --- | --- |
+| Pre-pilot recorded spend | $0.041904713 | Historical snapshot (plans prepared before the pilot) |
+| Pilot added | $0.034476018 | `pilot-execution-results.json` |
+| **Cumulative verified spend** | **$0.076380731** | Live DB ledger sum (11/11 rows fully measured, provider-reported) |
+| Remaining under $3 target | $2.923619269 | Derived |

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import models as m
 from app.config import Settings
 from app.contracts import BatchRequest, EvaluationRequest
-from app.errors import not_found
+from app.errors import ServiceError, not_found
 from app.evaluation import enqueue, preserve_interrupted_usage, queue_lock, run_evaluation
 from app.providers import LLMProvider
 from app.repository import conversation_detail
@@ -112,6 +112,19 @@ def create_batch(session: Session, request: BatchRequest, settings: Settings) ->
                     evaluation.usage or {}
                 ).get("model") == settings.llm_model:
                     reusable[membership.conversation_id] = evaluation
+    # Bounded per-POST spend exposure: the API path keeps no cumulative dollar
+    # ledger, so the configured cap on NEW billable evaluations is the guard
+    # against oversized or wrong-group batches. Unknown-cost history never
+    # counts as free spend anywhere in this decision.
+    new_count = sum(
+        1 for conversation in conversations if conversation.conversation_id not in reusable
+    )
+    if new_count > settings.max_batch_size:
+        raise ServiceError(
+            429,
+            "BATCH_SIZE_LIMIT_EXCEEDED",
+            "Batch exceeds the configured maximum number of new billable evaluations",
+        )
     batch = m.Batch(
         group_id=request.group_id,
         rubric_id=rubric.rubric_id,

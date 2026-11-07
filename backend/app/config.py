@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
     max_retry_delay_seconds: float = Field(default=5, ge=0, le=60)
     batch_concurrency: int = Field(default=2, ge=1, le=8)
+    # Maximum NEW billable evaluations a single POST /batches may create after
+    # reuse. The default preserves demo behavior for the 65-conversation DEV
+    # group; the control hour sets MAX_BATCH_SIZE=10 so any oversized or
+    # wrong-group batch is refused before any spend. The API path keeps no
+    # cumulative dollar ledger: this cap bounds per-POST exposure and the
+    # provider key spend limit remains the provider-side backstop.
+    max_batch_size: int = Field(default=100, ge=1, le=10000)
     # True keeps the no-login local demo fully functional. Repeated equivalent
     # paid requests are deduplicated to the existing work; set true only to run
     # a deliberate re-evaluation of already billed conversations.

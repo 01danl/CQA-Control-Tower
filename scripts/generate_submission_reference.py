@@ -74,8 +74,9 @@ def main(argv=None) -> int:
 
     settings = Settings()
     engine = make_engine(settings)
+    isolation = "REPEATABLE READ" if engine.dialect.name == "postgresql" else "SERIALIZABLE"
     try:
-        with engine.connect().execution_options(isolation_level="REPEATABLE READ") as connection:
+        with engine.connect().execution_options(isolation_level=isolation) as connection:
             with connection.begin(), Session(bind=connection) as session:
                 if engine.dialect.name == "postgresql":
                     session.execute(text("SET TRANSACTION READ ONLY"))

@@ -9,17 +9,32 @@ this file. Commands are exact; do not improvise. Every paid step is marked **PAI
 ## T-1 day: preconditions (all free)
 
 ```sh
-git -C . fetch origin && git status -sb          # must be "## main...origin/main", clean
-docker compose ps                                 # db/backend healthy, 127.0.0.1 only
+git status -sb                                     # must be "## main...origin/main", clean
+git fetch origin && git status -sb                 # no unexpected divergence
+docker compose ps                                  # db/backend healthy, 127.0.0.1 only
 curl -s http://127.0.0.1:8000/api/v1/health
-backend/.venv/bin/python -m app.dev_run reconcile # report-only: must list no "running" rows
+(cd backend && .venv/bin/python -m app.dev_run reconcile)  # report-only: no "running" rows
 python3 scripts/check_submission_delivery.py --dev-source scripts/submission_reference_dev.json
 ```
 
 Expected: delivery check `PASS` with dev `source_ids: PASS` (65-ID committed
 reference). Confirm the compose env keeps the demo defaults
-(`PAID_WORK_ENABLED` unset ⇒ enabled; `ALLOW_PAID_REEVALUATION` unset ⇒ false).
-Rehearse offline any time with `python3 scripts/drill_submission_delivery.py`.
+(`PAID_WORK_ENABLED` unset ⇒ enabled; `ALLOW_PAID_REEVALUATION` unset ⇒ false)
+and set the control-hour spend bound before starting the backend:
+
+```sh
+echo 'MAX_BATCH_SIZE=10' >> .env      # refuse any batch creating >10 new billable jobs
+docker compose up -d backend          # restart only if it was already running
+```
+
+Known, accepted gap: the approval-gated $3 plan/ledger in `app.dev_run` does NOT
+apply to ordinary `POST /api/v1/batches` requests — the API path keeps no
+cumulative dollar ledger. Compensating bounds: `MAX_BATCH_SIZE` caps the new
+billable jobs any single POST may create (refused pre-spend with 429
+`BATCH_SIZE_LIMIT_EXCEEDED`), equivalent re-POSTs are idempotent/deduplicated,
+unknown-cost jobs are never priced as free, and the provider key's own spend
+limit (≤$3) is the provider-side backstop. Rehearse offline any time with
+`python3 scripts/drill_submission_delivery.py`.
 
 ## 1. Import the control group (free)
 
@@ -66,8 +81,10 @@ backend/.venv/bin/python scripts/generate_submission_reference.py \
 
 ## 3. Evaluate all ten — **PAID**, one batch only
 
-Worker concurrency for the batch path is `BATCH_CONCURRENCY` (default 2). Submit
-exactly one batch for the control group; poll instead of re-posting. Since the
+Worker concurrency for the batch path is `BATCH_CONCURRENCY` (default 2). With
+`MAX_BATCH_SIZE=10` set in T-1 day, this POST can create at most ten new
+billable evaluations and refuses anything larger before spending. Submit exactly
+one batch for the control group; poll instead of re-posting. Since the
 batch-idempotency fix, an equivalent re-POST against a fully completed group
 returns the same batch — but do not rely on that; a failed batch re-POST creates
 new billable work for failed items only.

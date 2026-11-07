@@ -382,3 +382,25 @@ def test_reasoning_effort_configuration_is_recorded_per_attempt(session, engine,
     assert attempt.usage["reasoning_configs"] == [{"effort": "high"}]
     item = session.get(m.Evaluation, item.evaluation_id)
     assert item.usage["length_salvaged"] is False
+
+
+def test_default_flag_never_alters_output_limit_repair_requests(
+    session, engine, settings
+):
+    item = seed_run(session, settings)
+    assert settings.llm_repair_relax_reasoning is False
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        # Truncated content with real reasoning below the cap: the repair runs.
+        return response(settings, '{"results":', "length", 100)
+
+    provider = adapter(settings, handler)
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.status == "failed" and item.error["code"] == "MODEL_OUTPUT_LIMIT"
+    assert len(bodies) == 2
+    # Default OFF: the identical retry sends no reasoning key at all.
+    assert all("reasoning" not in body for body in bodies)

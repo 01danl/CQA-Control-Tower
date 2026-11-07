@@ -2,7 +2,9 @@
 
 Current state: 9 reusable successes; 55 missing + 1 failed. No new paid call in the
 reliability fix. The production model and reasoning effort stay unchanged. Maximum
-combined budget target is $3 including $0.041904713 already recorded. See
+combined budget target is $3 including $0.076380731 already recorded (DB-verified
+ledger: eleven fully-measured evaluations, all provider-reported; updated from the
+stale pre-pilot figure $0.041904713). See
 [LLM_RELIABILITY_FIX_REPORT.md](LLM_RELIABILITY_FIX_REPORT.md) for evidence and limits.
 
 ## First proposed paid action: four-case pilot
