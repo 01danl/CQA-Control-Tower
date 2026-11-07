@@ -32,9 +32,10 @@ export async function rubricsPage(api, ctx) {
         const type = select([['binary', 'Да / Нет'], ['numeric_scale', 'Числовая шкала'], ['violation', 'Нарушение']], c.type);
         const steps = input(c.allowed_values.join(', '));
         const na = input('', 'checkbox'); na.checked = c.allows_na;
+        const enabled = input('', 'checkbox'); enabled.checked = c.enabled !== false;
         const readRow = () => ({ ...Object.fromEntries(Object.entries(controls).map(([k, v]) => [k, v.value.trim()])),
           weight: controls.weight.value === '' ? NaN : Number(controls.weight.value), type: type.value,
-          allowed_values: type.value === 'numeric_scale' ? steps.value.split(',').map((v) => v.trim() === '' ? NaN : Number(v)) : ['yes', 'no'], allows_na: na.checked });
+          allowed_values: type.value === 'numeric_scale' ? steps.value.split(',').map((v) => v.trim() === '' ? NaN : Number(v)) : ['yes', 'no'], allows_na: na.checked, ...('enabled' in c ? { enabled: enabled.checked } : {}) });
         rows.push({ read: readRow });
         const sync = () => { steps.disabled = type.value !== 'numeric_scale'; if (type.value === 'violation') { controls.weight.value = '0'; na.checked = false; } controls.weight.disabled = type.value === 'violation'; na.disabled = type.value === 'violation'; controls.na_rule.disabled = !na.checked; };
         type.addEventListener('change', () => { sync(); validate(); }); na.addEventListener('change', () => { sync(); validate(); }); sync();
@@ -44,7 +45,7 @@ export async function rubricsPage(api, ctx) {
         return el('fieldset', { className: 'card editor-row' }, el('legend', { text: `Критерий ${i + 1}` }),
           el('div', { className: 'toolbar' }, up, down, button('Исключить из новой версии', () => { current = { ...current, ...read() }; current.criteria.splice(i, 1); draw(); validate(); }, true)),
           el('div', { className: 'form-grid' }, ...[['id', 'Уникальный ID'], ['name', 'Название'], ['section', 'Раздел'], ['weight', 'Вес']].map(([key, label]) => field(label, controls[key])), field('Тип результата', type), field('Шаги шкалы через запятую', steps)),
-          field('Описание', controls.description), field('Инструкции оценщику', controls.instructions), field('Разрешить N/A', na), field('Правило N/A', controls.na_rule));
+          field('Описание', controls.description), field('Инструкции оценщику', controls.instructions), field('Разрешить N/A', na), 'enabled' in c ? field('Критерий включён', enabled) : null, field('Правило N/A', controls.na_rule));
       }));
     }
     const save = button('Проверить и сохранить версию', () => {
@@ -60,7 +61,7 @@ export async function rubricsPage(api, ctx) {
     });
     editor.replaceChildren(el('section', { className: 'card' }, el('span', { className: 'tag', text: current.rubric_id ? `v${current.version} → новая версия` : 'Новый чек-лист' }), field('Название чек-листа', name)), list,
       button('+ Добавить критерий', () => { current = { ...current, ...read() }; current.criteria.push({ id: `criterion-${Date.now()}`, name: '', section: '', description: '', instructions: '', weight: 10, type: 'binary', allowed_values: ['yes', 'no'], allows_na: false, na_rule: '' }); draw(); validate(); }, true), errors, save, confirmation);
-    editor.oninput = validate; draw();
+    editor.oninput = validate; editor.onchange = validate; draw();
   }
   const load = async () => { const [id, version] = picker.value.split('|'); if (id) edit(await api.rubric(id, version)); else edit({ name: '', criteria: [] }); };
   picker.addEventListener('change', () => perform(state, 'Загрузка…', async () => { await load(); state.textContent = ''; }));

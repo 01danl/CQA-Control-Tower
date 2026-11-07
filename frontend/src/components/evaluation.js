@@ -7,11 +7,11 @@ export function evaluationDetail(evaluation, conversation, rubric) {
     el('a', { href: '#/conversations', text: '← Все диалоги', className: 'back-link' }),
     el('p', { className: 'eyebrow', text: `ОЦЕНКА / ${evaluation.conversation_id}` }),
     el('h1', { text: 'От результата к доказательству' }),
-    el('p', { className: 'muted', text: `${rubric.name} · v${evaluation.rubric_version}` }));
+    el('p', { className: 'muted', text: `${rubric.name ?? evaluation.rubric_id} · ${evaluation.rubric_id} · v${evaluation.rubric_version}` }));
   const status = el('span', { className: 'tag', text: statuses[evaluation.status] ?? evaluation.status });
   if (evaluation.status !== 'completed') {
     return el('section', {}, heading, el('section', { className: 'card', role: 'status' },
-      status, el('p', { text: evaluation.error?.message ?? 'Итог ещё не рассчитан.' }),
+      status, el('p', { text: evaluation.error ? `${evaluation.error.code}: ${evaluation.error.message}` : 'Итог ещё не рассчитан.' }),
       el('p', { className: 'muted', text: 'Статус обновляется автоматически. При ошибке запустите оценку повторно.' })), transcriptView(conversation));
   }
 
@@ -30,10 +30,11 @@ export function evaluationDetail(evaluation, conversation, rubric) {
     return el('article', { className: 'criterion' }, sectionHeading,
       el('div', { className: 'card-heading' },
         el('h3', { text: criterion?.name ?? result.criterion_id }),
-        el('span', { className: 'tag', text: String(result.review_override?.new_value ?? result.value).toUpperCase() })),
+        el('span', { className: 'tag', text: String(result.final_value ?? result.review_override?.new_value ?? result.value).toUpperCase() })),
       el('p', { text: result.reason }),
-      result.review_override ? el('div', { className: 'decision' }, el('p', { text: `Исходный ответ: ${result.value} · Решение: ${result.review_override.decision ?? 'override'} → ${result.review_override.new_value ?? result.value}` }), el('p', { text: result.review_override.reason ?? '' }), el('p', { className: 'muted', text: result.review_override.resolved_at ?? '' })) : null,
+      result.review_override ? el('div', { className: 'decision' }, el('p', { text: `Исходный ответ: ${result.value} · Решение: ${result.review_override.decision ?? 'override'} → ${result.review_override.new_value ?? result.value}` }), el('p', { text: result.review_override.reason ?? '' }), el('p', { className: 'muted', text: result.review_override.created_at ?? result.review_override.resolved_at ?? '' })) : null,
       el('p', { className: 'muted', text: `Вес: ${criterion?.weight ?? '—'} · Исходные баллы до нормализации: ${formatScore(result.weighted_points)}` }),
+      result.final_weighted_points !== undefined ? el('p', { className: 'muted', text: `Итоговые баллы до нормализации: ${formatScore(result.final_weighted_points)}` }) : null,
       result.na_reason ? el('p', { text: `N/A: ${result.na_reason}` }) : null,
       result.review_flag ? el('p', { text: 'Требуется проверка человеком', className: 'warning' }) : null,
       ...result.evidence.map((proof) => {
@@ -70,9 +71,11 @@ export function evaluationDetail(evaluation, conversation, rubric) {
       el('div', {}, status, el('p', { className: 'muted', text: `Исходная оценка: ${formatScore(evaluation.original_score)}` }),
         el('p', { className: evaluation.gross_error ? 'violation-warning' : '', text: `Грубая ошибка: ${evaluation.gross_error ? 'ДА — отдельный флаг, не изменяет балл' : 'нет'}` }))),
     evaluation.needs_human_review ? el('p', { className: 'warning', text: 'Результат требует проверки человеком.' }) : null,
+    el('p', { className: 'muted', text: `Оценка ${evaluation.evaluation_id} · ${evaluation.created_at}` }),
     el('div', { className: 'detail-grid' },
       el('section', { className: 'card' }, el('h2', { text: 'Критерии и доказательства' }), ...results),
       transcriptView(conversation)),
+    evaluation.audit_events?.length ? el('details', { className: 'card audit' }, el('summary', { text: 'История оценки и решений' }), ...evaluation.audit_events.map((event) => el('p', { text: `${event.created_at} · ${event.kind} · ${event.payload?.reason ?? ''}` }))) : null,
     evaluation.usage ? el('p', { className: 'footnote', text: `Модель: ${evaluation.usage.model ?? '—'} · Токены вход/выход: ${evaluation.usage.input_tokens ?? '—'} / ${evaluation.usage.output_tokens ?? '—'} · Расчётная стоимость: ${evaluation.usage.estimated_cost_usd == null ? 'не измерена' : '$' + evaluation.usage.estimated_cost_usd}` }) : el('p', { className: 'footnote', text: 'Телеметрия модели и стоимость не измерены.' }));
 }
 
@@ -92,5 +95,8 @@ export function transcriptView(conversation) {
       }
     } catch { /* Invalid URLs are not rendered. */ }
   }
-  return el('section', { className: 'card transcript' }, el('h2', { text: 'Исходный диалог' }), audioPlayer, conversation.channel === 'voice call' ? el('p', { className: 'muted', text: conversation.audio_url ? 'Акустические свойства по тексту не оцениваются.' : 'Запись не предоставлена. Акустические свойства по тексту не оцениваются.' }) : null, ...transcript);
+  const audioLink = audioPlayer ? el('a', { href: audioPlayer.src, target: '_blank', rel: 'noopener noreferrer', text: 'Открыть запись отдельно' }) : null;
+  const audioError = el('p', { className: 'warning', role: 'status' });
+  audioPlayer?.addEventListener('error', () => { audioError.textContent = 'Запись не удалось воспроизвести. Попробуйте открыть ссылку отдельно.'; });
+  return el('section', { className: 'card transcript' }, el('h2', { text: 'Исходный диалог' }), audioPlayer, audioLink, audioError, conversation.channel === 'voice call' ? el('p', { className: 'muted', text: conversation.audio_url ? 'Акустические свойства по тексту не оцениваются.' : 'Запись не предоставлена. Акустические свойства по тексту не оцениваются.' }) : null, ...transcript);
 }

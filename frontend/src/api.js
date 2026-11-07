@@ -31,7 +31,7 @@ export function createApi({ mode = 'mock', baseUrl = '/api/v1', fetchImpl = glob
     mode,
     // Readiness is always real, even while business workflows use synthetic data.
     health: () => http('/health'),
-    conversations: ({ group_id = 'SYNTHETIC', limit = 50, offset = 0 } = {}) =>
+    conversations: ({ group_id = mode === 'mock' ? 'SYNTHETIC' : 'DEV', limit = 50, offset = 0 } = {}) =>
       request(`/conversations?${query({ group_id, limit, offset })}`),
     conversation: (id, group_id) => request(`/conversations/${encodeURIComponent(id)}?${query({ group_id })}`),
     evaluation: (id) => request(`/evaluations/${encodeURIComponent(id)}`),
