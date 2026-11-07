@@ -1,0 +1,46 @@
+/* Reference-inspired visual layer. Existing page and workflow modules are reused. */
+#cqa-app h1, #cqa-app h2, #cqa-app .brand, #cqa-app .nav-link, #cqa-app .metric-value, #cqa-app .score { font-family: var(--font-display); }
+#cqa-app h1 { font-weight: 500; letter-spacing: -.045em; line-height: 1.15; }
+#cqa-app .card { border-radius: 18px; }
+#cqa-app .brand-mark { background: var(--lime); color: #173d2c; border-color: #d6f59d; border-radius: 5px 16px 5px 16px; }
+#cqa-app .nav-link { border-radius: 12px; min-height: 48px; }
+#cqa-app .nav-link[aria-current=page] { background: var(--lime); color: #173d2c; border-color: var(--lime); }
+#cqa-app .topbar-actions { gap: 12px; }
+#cqa-app .topbar-actions .field { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 10px; }
+#cqa-app .topbar-actions select { min-height: 40px; }
+#cqa-app .theme-toggle { width: 40px; height: 40px; padding: 9px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+#cqa-app .theme-toggle .icon { width: 18px; height: 18px; }
+#cqa-app .metric-card { border-radius: 16px; background: var(--soft); }
+#cqa-app .metric-card:nth-child(2) { background: var(--green-bg); }
+#cqa-app .metric-card:nth-child(4) { background: var(--violet-bg); }
+#cqa-app .metric-alert .metric-note { color: var(--rose-ink); }
+#cqa-app .button { border-radius: 10px; }
+#cqa-app input, #cqa-app select, #cqa-app textarea { border-radius: 10px; background-color: var(--input); }
+#cqa-app select { padding-right: 34px; }
+#cqa-app .tag { border-radius: 999px; }
+#cqa-app th { text-transform: uppercase; letter-spacing: .05em; font-size: 10px; }
+#cqa-app .transcript { background: var(--subtle); }
+#cqa-app .transcript-messages { display: flex; flex-direction: column; gap: 16px; padding: 12px 20px 18px 4px; scrollbar-width: thin; scrollbar-color: var(--strong-line) transparent; overscroll-behavior: contain; }
+#cqa-app .message { width: fit-content; max-width: 94%; margin-top: 0; border-radius: 14px; padding: 13px 15px; flex-shrink: 0; border-color: var(--line); }
+#cqa-app .message.operator { align-self: flex-end; }
+#cqa-app .message.client { align-self: flex-start; }
+#cqa-app .message.bot { align-self: flex-start; }
+#cqa-app .message.system { align-self: center; font-size: 12px; }
+#cqa-app .message-meta { font-size: 10px; gap: 5px 10px; }
+#cqa-app .criterion { background: var(--subtle); border: 1px solid var(--line); border-radius: 14px; padding: 17px; margin-top: 12px; }
+#cqa-app .criterion-violation { border-left: 4px solid var(--rose-ink); }
+#cqa-app .section-title { margin-top: 0; }
+#cqa-app .score-strip { background: var(--score-bg); border: 0; border-radius: 14px; color: var(--score-ink); padding: 18px; }
+#cqa-app .score-strip .score, #cqa-app .score-strip .score-value { color: var(--lime); }
+#cqa-app .score-strip .eyebrow, #cqa-app .score-strip .muted { color: var(--score-muted); }
+#cqa-app .score-comparison { border-color: #bdd0b644; }
+#cqa-app .result-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+#cqa-app .result-comparison > div { border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+#cqa-app .result-comparison p { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+#cqa-app .result-comparison > .human-result { border-color: var(--strong-line); background: var(--blue-bg); }
+#cqa-app .result-comparison .outcome { max-width: 100%; }
+#cqa-app .appeal-list .button { border-radius: 14px; }
+#cqa-app .audio-panel { border-radius: 12px; }
+@media (max-width: 1250px) { #cqa-app .topbar { flex-wrap: wrap; } #cqa-app .topbar-actions { flex-wrap: wrap; } }
+@media (max-width: 760px) { #cqa-app .topbar-actions { justify-content: flex-start; } #cqa-app .health { flex-basis: 100%; } }
+@media (max-width: 480px) { #cqa-app .result-comparison { grid-template-columns: 1fr; } #cqa-app .transcript-messages { padding-right: 16px; } }

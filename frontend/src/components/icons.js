@@ -1,5 +1,7 @@
 // Small, local SVG icons; no remote font or asset dependency.
 const paths = {
+  moon: ['M21 13a9 9 0 0 1-10-10A9 9 0 1 0 21 13z'],
+  sun: ['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5'],
   conversations: ['M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-3 3V11.5a8.5 8.5 0 0 1 17-1', 'M6 8h9M6 12h6'],
   rubrics: ['M9 4h11v17H4V4h2', 'M9 2h6v4H9zM8 11l1.5 1.5L12 10M14 12h3M8 17h9'],
   appeals: ['M12 3v18M5 21h14M3 7l9-4 9 4M5 7l-4 8h8L5 7zM19 7l-4 8h8l-4-8z'],
