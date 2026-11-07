@@ -23,7 +23,7 @@
 - [ ] Public links, SHA, UTC verification time and final CI URL handed to organizers
   before the actual deadline. If blocked, report the real failure; never publish fakes.
 
-Current state: format compatibility and actual 6-ok/59-error DEV verification PASS.
+Current state: format compatibility and actual 9-ok/56-error DEV verification PASS.
 Final delivery remains **BLOCKED** on unfinished DEV and unreleased control/PROD.
 The reliability task performed no paid call or push. Full commands and the
 isolated synthetic rehearsal: [SUBMISSION_DELIVERY_RUNBOOK.md](SUBMISSION_DELIVERY_RUNBOOK.md).

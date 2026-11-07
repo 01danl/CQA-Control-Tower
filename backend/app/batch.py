@@ -84,13 +84,33 @@ def create_batch(session: Session, request: BatchRequest, settings: Settings) ->
         if state["pending"]:
             session.commit()
             return {"batch_id": previous.batch_id, "status": state["status"]}
-        if state["failed"]:
-            for membership, evaluation in session.execute(
-                select(m.BatchItem, m.Evaluation)
-                .join(m.Evaluation, m.BatchItem.evaluation_id == m.Evaluation.evaluation_id)
-                .where(m.BatchItem.batch_id == previous.batch_id)
-            ):
-                if evaluation.status == "completed":
+        items = session.execute(
+            select(m.BatchItem, m.Evaluation)
+            .join(m.Evaluation, m.BatchItem.evaluation_id == m.Evaluation.evaluation_id)
+            .where(m.BatchItem.batch_id == previous.batch_id)
+        ).all()
+        same_model = bool(items) and all(
+            (evaluation.usage or {}).get("model") == settings.llm_model for _, evaluation in items
+        )
+        if (
+            state["completed"]
+            and same_model
+            and {item.conversation_id for item, _ in items}
+            == {conversation.conversation_id for conversation in conversations}
+            and not settings.allow_paid_reevaluation
+        ):
+            # An equivalent re-request against a fully completed batch returns
+            # the existing batch: creating a new one would re-bill every
+            # conversation in the group. A different model configuration or a
+            # changed group membership makes the request non-equivalent and
+            # falls through to fresh work below.
+            session.commit()
+            return {"batch_id": previous.batch_id, "status": state["status"]}
+        if not settings.allow_paid_reevaluation:
+            for membership, evaluation in items:
+                if evaluation.status == "completed" and (
+                    evaluation.usage or {}
+                ).get("model") == settings.llm_model:
                     reusable[membership.conversation_id] = evaluation
     batch = m.Batch(
         group_id=request.group_id,

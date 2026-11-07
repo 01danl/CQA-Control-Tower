@@ -8,7 +8,13 @@ from pathlib import Path
 
 from scripts.check_submission_delivery import check
 from scripts.tests.submission_fixtures import profile, reference, submission, write
-from scripts.validate_submission import ValidationError, WireFormat, validate
+from scripts.validate_submission import (
+    ValidationError,
+    WireFormat,
+    expected_reference,
+    strict_load,
+    validate,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -149,3 +155,77 @@ class DeliveryTests(unittest.TestCase):
             )
         with self.assertRaises(ValidationError):
             validate(copy.deepcopy(submission()), 0, WireFormat.read(self.fmt))
+
+
+class ReferenceGeneratorTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="submission-reference-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.fmt = self.root / "synthetic-format.json"
+        write(self.fmt, profile())
+
+    def test_ids_only_reference_enables_source_identity_gate(self):
+        from scripts.generate_submission_reference import build_reference
+
+        def row(index):
+            return type(
+                "Row", (), {"conversation_id": f"synthetic-test-{index}", "transcript": []}
+            )()
+
+        document = build_reference([row(0)])
+        self.assertEqual(document, {"items": [{"conversation_id": "synthetic-test-0"}], "total": 1})
+        rows = [row(i) for i in range(65)]
+        path = self.root / "reference.json"
+        write(path, build_reference(rows))
+        ids, transcripts = expected_reference(path, 65)
+        self.assertEqual(len(ids), 65)
+        self.assertEqual(transcripts, {})
+        write(self.root / "results/dev/results.json", submission(65))
+        report, code = check(self.root, self.fmt, sources={"dev": path})
+        self.assertEqual(code, 0)
+        self.assertEqual(report["files"]["dev"]["source_ids"], "PASS")
+
+    def test_reference_detects_fabricated_conversation_id(self):
+        from scripts.generate_submission_reference import build_reference
+
+        def row(index):
+            return type(
+                "Row", (), {"conversation_id": f"synthetic-test-{index}", "transcript": []}
+            )()
+
+        path = self.root / "reference.json"
+        write(path, build_reference([row(i) for i in range(65)]))
+        payload = submission(65)
+        payload["results"][0]["conversation_id"] = "fabricated-id"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "results/dev").mkdir(parents=True)
+        (self.root / "results/dev/results.json").write_text(json.dumps(payload))
+        report, code = check(self.root, self.fmt, sources={"dev": path})
+        self.assertEqual(code, 1)
+        self.assertEqual(report["files"]["dev"]["status"], "FAIL")
+
+    def test_transcript_reference_is_refused_inside_repository(self):
+        import scripts.generate_submission_reference as generator
+
+        with self.assertRaises(SystemExit):
+            generator._refuse_private_output(ROOT / "scripts" / "leak.json")
+        # The gitignored data/ directory is the documented safe location.
+        generator._refuse_private_output(ROOT / "data" / "submission-reference" / "prod.json")
+
+
+class TeamGateTests(unittest.TestCase):
+    def test_wrong_team_name_fails_validation(self):
+        payload = submission(1)
+        payload["team_name"] = "not-bda2402"
+        directory = tempfile.TemporaryDirectory(prefix="submission-team-test-")
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "results.json"
+        write(path, payload)
+        with self.assertRaises(ValidationError) as caught:
+            validate(
+                strict_load(path),
+                1,
+                WireFormat.read(Path(__file__).resolve().parents[1] / "submission_format.json"),
+            )
+        self.assertEqual(caught.exception.code, "TEAM_NAME_MISMATCH")

@@ -37,7 +37,7 @@ class TestProvider:
         self.calls = []
         self.mutate = mutate
 
-    def generate(self, rubric, conversation, feedback=None):
+    def generate(self, rubric, conversation, feedback=None, repair_reason=None):
         self.calls.append(
             deepcopy(
                 {

@@ -146,6 +146,9 @@ def test_reviewer_cannot_submit_illegal_values(session, engine, settings, criter
 
 def test_batch_restart_progress_and_failed_only_retry(session, engine, settings):
     import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    # The stub provider advertises this exact model string on every reply, so it
+    # is the evaluation-model identity that completed/billed work carries here.
+    settings.llm_model = "synthetic-test-provider"
     request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
     first = create_batch(session, request, settings)
     same = create_batch(session, request, settings)
@@ -169,6 +172,93 @@ def test_batch_restart_progress_and_failed_only_retry(session, engine, settings)
     assert retried_progress["pending"] == 64
     assert retried_progress["items"][0]["evaluation_id"] == done_id
     session.commit()
+
+
+def run_batch(engine, settings, batch_id):
+    with make_session_factory(engine)() as run_session:
+        ids = run_session.scalars(
+            select(m.BatchItem.evaluation_id).where(m.BatchItem.batch_id == batch_id)
+        ).all()
+    for evaluation_id in ids:
+        run_evaluation(make_session_factory(engine), evaluation_id, TestProvider(), settings)
+
+
+def test_batch_completed_group_is_idempotent_and_does_not_rebill(session, engine, settings):
+    import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    # The stub advertises exactly this identity, so completed work matches the
+    # configured evaluation model and the re-request is truly equivalent.
+    settings.llm_model = "synthetic-test-provider"
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    first = create_batch(session, request, settings)
+    session.commit()
+    run_batch(engine, settings, first["batch_id"])
+    assert progress(session, first["batch_id"])["completed"] == 65
+    assert len(session.scalars(select(m.Evaluation)).all()) == 65
+    session.commit()
+    second = create_batch(session, request, settings)
+    session.commit()
+    assert second == {"batch_id": first["batch_id"], "status": "completed"}
+    assert len(session.scalars(select(m.Evaluation)).all()) == 65
+    assert len(session.scalars(select(m.Batch)).all()) == 1
+
+
+def test_batch_completed_under_foreign_model_is_not_equivalent(session, engine, settings):
+    import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    # settings.llm_model stays on the configured production model while the
+    # stub advertises a foreign identity: results from that model must not be
+    # treated as reusable for the configured specification.
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    first = create_batch(session, request, settings)
+    session.commit()
+    run_batch(engine, settings, first["batch_id"])
+    assert progress(session, first["batch_id"])["completed"] == 65
+    session.commit()
+    second = create_batch(session, request, settings)
+    session.commit()
+    assert second["batch_id"] != first["batch_id"]
+    fresh = progress(session, second["batch_id"])
+    assert (fresh["completed"], fresh["pending"]) == (0, 65)
+    assert len(session.scalars(select(m.Evaluation)).all()) == 130
+
+
+def test_batch_reevaluation_flag_replaces_completed_group(session, engine, settings):
+    import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    settings.llm_model = "synthetic-test-provider"
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    first = create_batch(session, request, settings)
+    session.commit()
+    run_batch(engine, settings, first["batch_id"])
+    session.commit()
+    settings.allow_paid_reevaluation = True
+    second = create_batch(session, request, settings)
+    session.commit()
+    assert second["batch_id"] != first["batch_id"]
+    fresh = progress(session, second["batch_id"])
+    assert (fresh["completed"], fresh["pending"]) == (0, 65)
+    assert len(session.scalars(select(m.Evaluation)).all()) == 130
+
+
+def test_batch_failed_retry_does_not_reuse_foreign_model_results(session, engine, settings):
+    import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    # The single completed evaluation carries the stub identity while the
+    # configured model differs: the retry must re-evaluate it instead of
+    # silently reusing cross-model results.
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    first = create_batch(session, request, settings)
+    session.commit()
+    with make_session_factory(engine)() as run_session:
+        done_id = run_session.scalar(
+            select(m.BatchItem.evaluation_id).where(m.BatchItem.batch_id == first["batch_id"])
+        )
+    run_evaluation(make_session_factory(engine), done_id, TestProvider(), settings)
+    session.expire_all()
+    assert recover_unfinished(make_session_factory(engine)) == 64
+    session.commit()
+    retried = create_batch(session, request, settings)
+    session.commit()
+    retried_progress = progress(session, retried["batch_id"])
+    assert (retried_progress["completed"], retried_progress["pending"]) == (0, 65)
+    assert len(session.scalars(select(m.Evaluation)).all()) == 130
 
 
 def test_batch_queue_limit_rolls_back_every_item(session, settings):
@@ -372,3 +462,79 @@ def test_validation_errors_do_not_echo_transcripts_or_secrets(engine, settings):
             ).status_code
             == 422
         )
+
+
+def test_paid_endpoints_dedup_identical_requests(session, engine, settings):
+    import_dataset(session, "DEV", parse_dataset(dataset_payload()))
+    # The stub advertises exactly this identity, so completed work is reusable.
+    settings.llm_model = "synthetic-test-provider"
+    session.commit()
+    body = {
+        "group_id": "DEV",
+        "conversation_id": "synthetic-0",
+        "rubric_id": "default",
+        "rubric_version": 1,
+    }
+    with TestClient(create_app(settings, engine=engine, start_workers=False)) as client:
+        first = client.post("/api/v1/evaluations", json=body)
+        assert first.status_code == 202
+        second = client.post("/api/v1/evaluations", json=body)
+        assert second.status_code == 202
+        # An active equivalent exists: the repeated request must not double-bill.
+        assert second.json()["evaluation_id"] == first.json()["evaluation_id"]
+        run_evaluation(
+            make_session_factory(engine), first.json()["evaluation_id"], TestProvider(), settings
+        )
+        third = client.post("/api/v1/evaluations", json=body)
+        assert third.status_code == 202
+        assert third.json() == {"evaluation_id": first.json()["evaluation_id"], "status": "completed"}
+    assert len(session.scalars(select(m.Evaluation)).all()) == 1
+
+
+def test_paid_work_disabled_blocks_billable_endpoints(session, engine, settings):
+    import_dataset(session, "DEV", parse_dataset(dataset_payload()))
+    settings.paid_work_enabled = False
+    session.commit()
+    with TestClient(create_app(settings, engine=engine, start_workers=False)) as client:
+        evaluation_response = client.post(
+            "/api/v1/evaluations",
+            json={
+                "group_id": "DEV",
+                "conversation_id": "synthetic-0",
+                "rubric_id": "default",
+                "rubric_version": 1,
+            },
+        )
+        assert evaluation_response.status_code == 403
+        assert evaluation_response.json()["error"]["code"] == "PAID_WORK_DISABLED"
+        batch_response = client.post(
+            "/api/v1/batches",
+            json={"group_id": "DEV", "rubric_id": "default", "rubric_version": 1},
+        )
+        assert batch_response.status_code == 403
+        assert batch_response.json()["error"]["code"] == "PAID_WORK_DISABLED"
+    assert session.scalars(select(m.Evaluation)).all() == []
+    assert session.scalars(select(m.Batch)).all() == []
+
+
+def test_batch_get_is_read_only(session, engine, settings):
+    import_dataset(session, "CONTROL", parse_dataset(dataset_payload()))
+    settings.llm_model = "synthetic-test-provider"
+    request = BatchRequest(group_id="CONTROL", rubric_id="default", rubric_version=1)
+    receipt = create_batch(session, request, settings)
+    session.commit()
+    with make_session_factory(engine)() as run_session:
+        done_id = run_session.scalar(
+            select(m.BatchItem.evaluation_id).where(
+                m.BatchItem.batch_id == receipt["batch_id"]
+            )
+        )
+    run_evaluation(make_session_factory(engine), done_id, TestProvider(), settings)
+    session.expire_all()
+    with TestClient(create_app(settings, engine=engine, start_workers=False)) as client:
+        progress = client.get(f"/api/v1/batches/{receipt['batch_id']}")
+        assert progress.status_code == 200
+        assert progress.json()["status"] == "running"
+    session.expire_all()
+    # A GET must not persist derived status; workers and create_batch own writes.
+    assert session.get(m.Batch, receipt["batch_id"]).status == "queued"

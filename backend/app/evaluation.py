@@ -64,6 +64,45 @@ def enqueue(
     return item
 
 
+def find_equivalent(
+    session: Session, request: EvaluationRequest, settings: Settings
+) -> m.Evaluation | None:
+    """Return existing work for an identical paid request, or None.
+
+    Active (queued/running) equivalents are always returned so a repeated
+    request cannot double-bill a conversation. A completed equivalent is
+    returned unless allow_paid_reevaluation is explicitly enabled; it must
+    additionally carry the configured evaluation-model identity. Failed work is
+    never reused: retries create a fresh billable attempt.
+    """
+    rubric = get_rubric(session, request.rubric_id, request.rubric_version)
+    conversation = get_conversation(session, request.group_id, request.conversation_id)
+    rows = session.scalars(
+        select(m.Evaluation)
+        .where(
+            m.Evaluation.group_id == request.group_id,
+            m.Evaluation.conversation_id == request.conversation_id,
+            m.Evaluation.rubric_id == request.rubric_id,
+            m.Evaluation.rubric_version == request.rubric_version,
+            m.Evaluation.status.in_(["queued", "running", "completed"]),
+        )
+        .order_by(m.Evaluation.created_at.desc(), m.Evaluation.evaluation_id.desc())
+    ).all()
+    detail = conversation_detail(conversation).model_dump(mode="json")
+    rubric_document = rubric.model_dump(mode="json")
+    for row in rows:
+        if row.conversation_snapshot != detail or row.rubric_snapshot != rubric_document:
+            continue
+        if row.status in ("queued", "running"):
+            return row
+        if settings.allow_paid_reevaluation:
+            return None
+        if (row.usage or {}).get("model") != settings.llm_model:
+            continue
+        return row
+    return None
+
+
 def usage_summary(
     replies: list[ProviderReply],
     settings: Settings,
@@ -124,6 +163,9 @@ def usage_summary(
         "finish_reason": replies[-1].finish_reason if replies else None,
         "native_finish_reason": replies[-1].native_finish_reason if replies else None,
         "finish_reasons": [r.finish_reason for r in replies],
+        # Exact reasoning configuration per attempt; None entries mean the
+        # provider default applied because no reasoning field was sent.
+        "reasoning_configs": [r.reasoning_config for r in replies],
         "reasoning_tokens": sum(r.reasoning_tokens or 0 for r in replies)
         if replies
         and reply_metrics_complete
@@ -172,6 +214,7 @@ def run_evaluation(
     unknown_usage = False
     transport_attempts: int | None = 0
     generation_calls = 0
+    repair_reason: str | None = None
     for attempt_number in (1, 2):
         reply: ProviderReply | None = None
         output: ModelOutput | None = None
@@ -182,7 +225,7 @@ def run_evaluation(
         attempt_transports: int | None = 0
         try:
             generation_calls += 1
-            reply = provider.generate(rubric, conversation, feedback)
+            reply = provider.generate(rubric, conversation, feedback, repair_reason)
             replies.append(reply)
             attempt_transports = reply.transport_attempts
             if transport_attempts is not None:
@@ -243,6 +286,10 @@ def run_evaluation(
                 feedback = [
                     "Output budget exhausted: return concise complete JSON; preserve exact evidence"
                 ]
+            elif exc.code == "MODEL_EMPTY_CONTENT":
+                feedback = [
+                    "Previous response contained no evaluation content: return the complete JSON result for full revalidation"
+                ]
             error = {"code": exc.code, "message": exc.message, "details": None}
         except ServiceError as exc:
             error_code = exc.code
@@ -281,12 +328,28 @@ def run_evaluation(
             break
         score = None
         results = []
-        if error_code not in {"INVALID_MODEL_OUTPUT", "MODEL_OUTPUT_LIMIT"}:
+        if error_code not in {"INVALID_MODEL_OUTPUT", "MODEL_OUTPUT_LIMIT", "MODEL_EMPTY_CONTENT"}:
             break  # Network retry/rate-limit handling is bounded inside the provider.
+        repair_reason = "output_limit" if error_code == "MODEL_OUTPUT_LIMIT" else None
+        if (
+            error_code == "MODEL_OUTPUT_LIMIT"
+            and bool(reply and reply.reasoning_exhausted)
+            and not settings.llm_repair_relax_reasoning
+        ):
+            # Identical retry cannot change an all-reasoning token budget; the
+            # exact reasoning configuration is already persisted per attempt.
+            break
     with factory() as session:
         item = get_evaluation(session, evaluation_id, lock=True)
         if item.status != "running":
             return
+        if (
+            error is not None
+            and error.get("code") == "MODEL_OUTPUT_LIMIT"
+            and replies
+            and replies[-1].reasoning_exhausted
+        ):
+            error = {**error, "details": {"reasoning_exhausted": True}}
         item.status = "completed" if score is not None else "failed"
         item.results = results if score is not None else []
         item.original_score = score.final_score if score is not None else None
@@ -303,6 +366,11 @@ def run_evaluation(
             incomplete=unknown_usage,
             transport_attempts=transport_attempts,
             repair_attempts=max(0, generation_calls - 1),
+        )
+        # A completed final reply whose finish_reason is "length" can only be a
+        # salvaged complete JSON document; failed attempts are never "salvaged".
+        item.usage["length_salvaged"] = (
+            score is not None and bool(replies) and replies[-1].finish_reason == "length"
         )
         session.add(
             m.AuditEvent(

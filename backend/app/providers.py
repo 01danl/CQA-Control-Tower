@@ -59,6 +59,12 @@ class ProviderReply:
     native_finish_reason: str | None = None
     reasoning_tokens: int | None = None
     request_duration_ms: int | None = None
+    # Exact reasoning configuration sent for this attempt; None means the
+    # provider default applied because no reasoning field was sent.
+    reasoning_config: dict | None = None
+    # True only when the provider reported that every completion token was
+    # reasoning: an identical retry cannot produce content.
+    reasoning_exhausted: bool = False
 
 
 class ProviderFailure(ServiceError):
@@ -86,6 +92,7 @@ class LLMProvider(Protocol):
         rubric: RubricDetail,
         conversation: ConversationDetail,
         feedback: list[str] | None = None,
+        repair_reason: str | None = None,
     ) -> ProviderReply: ...
 
 
@@ -106,6 +113,7 @@ class OpenAIProvider:
         rubric: RubricDetail,
         conversation: ConversationDetail,
         feedback: list[str] | None = None,
+        repair_reason: str | None = None,
     ) -> ProviderReply:
         silence_transport_logs()
         settings = self.settings
@@ -172,6 +180,12 @@ class OpenAIProvider:
             body.pop("store", None)
             if settings.llm_reasoning_effort is not None:
                 body["reasoning"] = {"effort": settings.llm_reasoning_effort}
+            if repair_reason == "output_limit" and settings.llm_repair_relax_reasoning:
+                # Opt-in relaxed repair: an output-limit retry explicitly drops
+                # reasoning so the JSON result fits the same output budget.
+                body["reasoning"] = {"enabled": False}
+        reasoning_setting = body.get("reasoning")
+        reasoning_config: dict | None = reasoning_setting if isinstance(reasoning_setting, dict) else None
         request_duration_ms = 0
         with httpx.Client(
             timeout=settings.llm_timeout_seconds,
@@ -211,6 +225,8 @@ class OpenAIProvider:
                             usage_complete=attempt == 0,
                             transport_attempts=attempt + 1,
                             request_duration_ms=request_duration_ms,
+                            max_output_tokens=settings.llm_max_output_tokens,
+                            reasoning_config=reasoning_config,
                         )
                     if response.status_code != 429 and response.status_code < 500:
                         raise ProviderFailure(
@@ -258,6 +274,8 @@ class OpenAIProvider:
         usage_complete: bool = True,
         transport_attempts: int = 1,
         request_duration_ms: int | None = None,
+        max_output_tokens: int | None = None,
+        reasoning_config: dict | None = None,
     ) -> ProviderReply:
         reply: ProviderReply | None = None
         try:
@@ -297,6 +315,7 @@ class OpenAIProvider:
                 transport_attempts=transport_attempts,
                 reported_cost_usd=reported_cost,
                 request_duration_ms=request_duration_ms,
+                reasoning_config=reasoning_config,
             )
             choice = payload["choices"][0]
             if not isinstance(choice, dict):
@@ -329,22 +348,63 @@ class OpenAIProvider:
                     reply=reply,
                     transport_attempts=transport_attempts,
                 )
-            if reply.finish_reason == "length":
-                raise ProviderFailure(
-                    502,
-                    "MODEL_OUTPUT_LIMIT",
-                    "Model exhausted its output token budget",
-                    reply=reply,
-                    transport_attempts=transport_attempts,
-                    request_duration_ms=request_duration_ms,
-                )
-            if not isinstance(raw, str):
-                raise ValueError("Missing content")
-            if not raw.strip():
+            # Every completion token reported as reasoning means an identical
+            # retry deterministically exhausts the budget again.
+            reply = replace(
+                reply,
+                reasoning_exhausted=(
+                    reply.reasoning_tokens is not None
+                    and reply.output_tokens is not None
+                    and reply.reasoning_tokens >= reply.output_tokens
+                ),
+            )
+            at_cap = (
+                output_tokens is not None
+                and max_output_tokens is not None
+                and output_tokens >= max_output_tokens
+            )
+            if not isinstance(raw, str) or not raw.strip():
+                # Missing/empty content at the output cap is an output-limit
+                # failure even when the provider omits finish_reason="length";
+                # without cap evidence it is honest empty-content model output,
+                # never a malformed envelope.
+                if reply.finish_reason == "length" or at_cap:
+                    raise ProviderFailure(
+                        502,
+                        "MODEL_OUTPUT_LIMIT",
+                        "Model exhausted its output token budget",
+                        reply=reply,
+                        transport_attempts=transport_attempts,
+                        request_duration_ms=request_duration_ms,
+                    )
                 raise ProviderFailure(
                     502,
                     "MODEL_EMPTY_CONTENT",
                     "Model returned no evaluation content",
+                    reply=reply,
+                    transport_attempts=transport_attempts,
+                    request_duration_ms=request_duration_ms,
+                )
+            if reply.finish_reason == "length":
+                # Salvage gate: only a complete JSON document is returned, and
+                # the orchestrator still applies the full schema/evidence/
+                # scoring validation, so truncated content can never pass.
+                salvaged = None
+                try:
+                    salvaged = parse_model_json(raw)
+                except ValueError:
+                    salvaged = None
+                if isinstance(salvaged, dict):
+                    return replace(
+                        reply,
+                        raw_output=salvaged,
+                        complete=True,
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                    )
+                raise ProviderFailure(
+                    502,
+                    "MODEL_OUTPUT_LIMIT",
+                    "Model exhausted its output token budget",
                     reply=reply,
                     transport_attempts=transport_attempts,
                     request_duration_ms=request_duration_ms,

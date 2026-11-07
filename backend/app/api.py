@@ -23,6 +23,7 @@ from app.contracts import (
     RubricList,
 )
 from app.db import get_session
+from app.errors import ServiceError
 from app.responses import (
     AppealDetail,
     AppealList,
@@ -32,6 +33,21 @@ from app.responses import (
     EvaluationSummary,
 )
 from app.schemas import ErrorEnvelope
+
+
+def require_paid_work(settings) -> None:
+    """Deployment guard for billable endpoints; the request schema is unchanged.
+
+    The no-login local demo keeps the default True. Any deployment that exposes
+    the API beyond loopback must set PAID_WORK_ENABLED=false, because the frozen
+    contract intentionally carries no authentication.
+    """
+    if not settings.paid_work_enabled:
+        raise ServiceError(
+            403,
+            "PAID_WORK_DISABLED",
+            "Paid evaluation work is disabled on this deployment",
+        )
 
 SessionDep = Annotated[Session, Depends(get_session)]
 ERRORS: dict[int | str, dict[str, Any]] = {
@@ -131,7 +147,12 @@ def rubric_version(rubric_id: str, body: RubricDraft, session: SessionDep):
     "/evaluations", response_model=EvaluationReceipt, status_code=202, tags=["evaluations"]
 )
 def evaluation_create(body: EvaluationRequest, request: Request, session: SessionDep):
-    item = evaluation.enqueue(session, body, request.app.state.settings)
+    settings = request.app.state.settings
+    require_paid_work(settings)
+    equivalent = evaluation.find_equivalent(session, body, settings)
+    if equivalent is not None:
+        return {"evaluation_id": equivalent.evaluation_id, "status": equivalent.status}
+    item = evaluation.enqueue(session, body, settings)
     return {"evaluation_id": item.evaluation_id, "status": item.status}
 
 
@@ -168,14 +189,15 @@ def evaluation_history(conversation_id: str, session: SessionDep, group_id: Grou
 
 @router.post("/batches", response_model=BatchReceipt, status_code=202, tags=["batches"])
 def batch_create(body: BatchRequest, request: Request, session: SessionDep):
+    require_paid_work(request.app.state.settings)
     return batch.create_batch(session, body, request.app.state.settings)
 
 
 @router.get("/batches/{batch_id}", response_model=BatchProgress, tags=["batches"])
 def batch_get(batch_id: str, session: SessionDep):
-    result = batch.progress(session, batch_id)
-    session.commit()
-    return result
+    # Read-only: derived status is recomputed for the response but never
+    # persisted from a GET (workers and create_batch own status writes).
+    return batch.progress(session, batch_id)
 
 
 @router.post("/appeals", response_model=AppealDetail, status_code=201, tags=["appeals"])

@@ -14,12 +14,13 @@ one-based evidence_turns and nested score. Error rows use criteria=[] and score=
 The profile is confirmed against that supplied authority and pinned to those exact
 fields; changing confirmed alone cannot enable a different format.
 
-Actual DEV: 65 original IDs, 6 genuine stored original AI results, 59 honest errors
-(one failed, 58 missing). Both schema/independent scoring and DB-aware provenance
-checks pass. The JSON bytes were not changed during the reliability fix. Final
-submission remains incomplete. Control data/PROD results are not yet available.
-Development CI checks actual existing files; --final strictly requires both DEV=65
-and control=10. Missing PROD is NOT TESTED in development, FAIL in the final gate.
+Actual DEV: 65 original IDs, 9 genuine stored original AI results, 56 honest errors
+(one failed, 55 missing). Both schema/independent scoring and DB-aware provenance
+checks pass (sha256 9c1e9bed…c12a782). The JSON bytes were not changed during the
+reliability fix. Final submission remains incomplete. Control data/PROD results are
+not yet available. Development CI checks actual existing files; --final strictly
+requires both DEV=65 and control=10. Missing PROD is NOT TESTED in development,
+FAIL in the final gate.
 
 No final publication or paid continuation was executed. Full implementation/testing
 report: [LLM_RELIABILITY_FIX_REPORT.md](LLM_RELIABILITY_FIX_REPORT.md). Missing-only

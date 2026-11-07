@@ -26,7 +26,7 @@ def adapter(settings, handler):
     return OpenAIProvider(settings, transport=httpx.MockTransport(handler), sleep=lambda _: None)
 
 
-def response(settings, content, finish="stop", reasoning=0):
+def response(settings, content, finish="stop", reasoning=0, completion=None):
     return httpx.Response(
         200,
         json={
@@ -40,7 +40,9 @@ def response(settings, content, finish="stop", reasoning=0):
             ],
             "usage": {
                 "prompt_tokens": 100,
-                "completion_tokens": 8192 if finish == "length" else 50,
+                "completion_tokens": completion
+                if completion is not None
+                else (8192 if finish == "length" else 50),
                 "completion_tokens_details": {"reasoning_tokens": reasoning},
                 "cost": 0.001,
             },
@@ -78,16 +80,27 @@ def test_support_empty_or_invented_is_not_automatically_relabelled(session, sett
     assert validate_evidence(ModelOutput.model_validate(raw), rubric, conversation)
 
 
-@pytest.mark.parametrize("content", [None, "", '{"results":'])
+@pytest.mark.parametrize(
+    ("content", "reasoning", "expected_calls"),
+    [
+        # All completion tokens reported as reasoning: an identical retry is
+        # pointless, so execution stops after one measured attempt.
+        (None, 8192, 1),
+        ("", 8192, 1),
+        ('{"results":', 8192, 1),
+        # Truncated JSON with content actually produced: one bounded repair.
+        ('{"results":', 100, 2),
+    ],
+)
 def test_output_limit_classification_retains_usage_without_reasoning_text(
-    session, engine, settings, content
+    session, engine, settings, content, reasoning, expected_calls
 ):
     item = seed_run(session, settings)
     calls = []
 
     def handler(request):
         calls.append(request)
-        return response(settings, content, "length", 8192)
+        return response(settings, content, "length", reasoning)
 
     provider = adapter(settings, handler)
     run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
@@ -95,17 +108,23 @@ def test_output_limit_classification_retains_usage_without_reasoning_text(
     item = session.get(m.Evaluation, item.evaluation_id)
     assert item.status == "failed" and item.error["code"] == "MODEL_OUTPUT_LIMIT"
     assert item.results == [] and item.original_score is None
-    assert len(calls) == 2  # Only one bounded repair; never an unbounded restart.
-    assert item.usage["provider_cost_usd"] == 0.002
-    assert item.usage["reasoning_tokens"] == 16384
-    assert item.usage["finish_reasons"] == ["length", "length"]
+    assert len(calls) == expected_calls
+    assert item.usage["provider_cost_usd"] == 0.001 * expected_calls
+    assert item.usage["finish_reasons"] == ["length"] * expected_calls
+    if reasoning >= 8192:
+        # Reasoning-token exhaustion is recorded in the durable error object.
+        assert item.error["details"] == {"reasoning_exhausted": True}
+    else:
+        assert item.error["details"] is None
     attempts = session.scalars(
         select(m.ModelAttempt).where(m.ModelAttempt.evaluation_id == item.evaluation_id)
     ).all()
+    assert len(attempts) == expected_calls
     for attempt in attempts:
         assert attempt.usage["finish_reason"] == "length"
         assert attempt.usage["native_finish_reason"] == "length"
         assert attempt.usage["provider_request_duration_ms"] >= 0
+        assert attempt.usage["reasoning_configs"] == [None]
         assert "private reasoning" not in str(attempt.raw_output)
 
 
@@ -116,7 +135,10 @@ def test_empty_stop_is_safe_failure_with_measured_cost(session, engine, settings
     session.expire_all()
     item = session.get(m.Evaluation, item.evaluation_id)
     assert item.status == "failed" and item.error["code"] == "MODEL_EMPTY_CONTENT"
-    assert item.usage["provider_cost_usd"] == 0.001
+    # Empty content is model output pathology with measured cost: it receives
+    # exactly one bounded repair attempt instead of aborting the run.
+    assert item.usage["provider_cost_usd"] == 0.002
+    assert item.usage["repair_attempts"] == 1
     assert not item.results
 
 
@@ -219,3 +241,144 @@ def test_timeout_remains_unknown_cost_and_records_request_duration(session, engi
     )
     assert attempt.usage["provider_cost_usd"] is None
     assert attempt.usage["provider_request_duration_ms"] >= 0
+
+
+def _valid_json_content(session, item):
+    from app.contracts import ConversationDetail
+
+    rubric = get_rubric(session, "default", 1)
+    conversation = ConversationDetail.model_validate(item.conversation_snapshot)
+    return json.dumps(valid_output(rubric, conversation))
+
+
+def test_salvaged_complete_json_at_length_passes_full_validation(session, engine, settings):
+    item = seed_run(session, settings)
+    content = _valid_json_content(session, item)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return response(settings, content, "length", 100)
+
+    provider = adapter(settings, handler)
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    # The document is accepted only because every criterion, evidence anchor,
+    # N/A semantic and score check passed; finish_reason stays recorded.
+    assert item.status == "completed" and item.original_score is not None
+    assert item.usage["finish_reason"] == "length"
+    assert item.usage["length_salvaged"] is True
+    assert item.usage["finish_reasons"] == ["length"]
+    assert len(calls) == 1
+
+
+def test_salvage_gate_never_accepts_invalid_evidence_at_length(session, engine, settings):
+    item = seed_run(session, settings)
+    content = _valid_json_content(session, item)
+
+    def broken(document):
+        document["results"][-1]["evidence"][0]["quote"] = "Invented quotation"
+        return document
+
+    import json as _json
+
+    content = _json.dumps(broken(_json.loads(content)))
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return response(settings, content, "length", 100)
+
+    provider = adapter(settings, handler)
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    # Salvage does not relax validation: the fabricated quote fails evidence
+    # checks and burns the single bounded repair, then fails honestly.
+    assert item.status == "failed" and item.error["code"] == "INVALID_MODEL_OUTPUT"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("finish", "completion", "expected"),
+    [
+        ("stop", 50, "MODEL_EMPTY_CONTENT"),
+        (None, 50, "MODEL_EMPTY_CONTENT"),
+        ("stop", 8192, "MODEL_OUTPUT_LIMIT"),
+        (None, 8192, "MODEL_OUTPUT_LIMIT"),
+    ],
+)
+def test_missing_content_classification_does_not_depend_on_finish_reason(
+    session, engine, settings, finish, completion, expected
+):
+    item = seed_run(session, settings)
+    provider = adapter(settings, lambda _: response(settings, None, finish, 0, completion))
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.status == "failed" and item.error["code"] == expected
+
+
+def test_relaxed_repair_flag_sends_reasoning_disabled_only_for_output_limit(
+    session, engine, settings
+):
+    item = seed_run(session, settings)
+    settings.llm_repair_relax_reasoning = True
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return response(settings, None, "length", 8192)
+
+    provider = adapter(settings, handler)
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert len(bodies) == 2
+    assert "reasoning" not in bodies[0]
+    assert bodies[1]["reasoning"] == {"enabled": False}
+    assert item.error["code"] == "MODEL_OUTPUT_LIMIT"
+    assert item.error["details"] == {"reasoning_exhausted": True}
+    attempts = session.scalars(
+        select(m.ModelAttempt).where(m.ModelAttempt.evaluation_id == item.evaluation_id)
+    ).all()
+    assert [a.usage["reasoning_configs"] for a in attempts] == [
+        [None],
+        [{"enabled": False}],
+    ]
+
+
+def test_relax_flag_leaves_validation_and_default_repairs_untouched(
+    session, engine, settings
+):
+    item = seed_run(session, settings)
+    settings.llm_repair_relax_reasoning = True
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return response(settings, "not JSON")
+
+    provider = adapter(settings, handler)
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.error["code"] == "INVALID_MODEL_OUTPUT"
+    assert len(bodies) == 2
+    assert all("reasoning" not in body for body in bodies)
+
+
+def test_reasoning_effort_configuration_is_recorded_per_attempt(session, engine, settings):
+    item = seed_run(session, settings)
+    settings.llm_reasoning_effort = "high"
+    content = _valid_json_content(session, item)
+    provider = adapter(settings, lambda _: response(settings, content))
+    run_evaluation(make_session_factory(engine), item.evaluation_id, provider, settings)
+    session.expire_all()
+    attempt = session.scalar(
+        select(m.ModelAttempt).where(m.ModelAttempt.evaluation_id == item.evaluation_id)
+    )
+    assert attempt.usage["reasoning_configs"] == [{"effort": "high"}]
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.usage["length_salvaged"] is False

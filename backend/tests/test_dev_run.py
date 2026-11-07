@@ -14,6 +14,7 @@ from app import models as m
 from app.contracts import EvaluationRequest
 from app.db import make_session_factory
 from app.evaluation import enqueue
+from app.providers import ProviderFailure, ProviderReply
 from tests.provider_stub import TestProvider
 from tests.test_export_results import job, seed
 
@@ -343,3 +344,124 @@ def test_run_cannot_silently_ignore_pilot_scope_flags(monkeypatch, capsys):
     monkeypatch.setattr(run, "Settings", lambda: pytest.fail("Refuse before configuration/network"))
     assert run.main() == 2
     assert "SCOPE_AND_LINEAGE_FLAGS_ARE_PREPARE_ONLY" in capsys.readouterr().out
+
+
+class EmptyReplyProvider(SyntheticProvider):
+    """Measured MODEL_EMPTY_CONTENT failures; a synthetic provider subclass."""
+
+    def __init__(self, empty_attempts: int):
+        super().__init__()
+        self.empty_attempts = empty_attempts
+        self.attempts = 0
+
+    def generate(self, *args, **kwargs):
+        self.attempts += 1
+        if self.attempts <= self.empty_attempts:
+            raise ProviderFailure(
+                502,
+                "MODEL_EMPTY_CONTENT",
+                "Model returned no evaluation content",
+                reply=ProviderReply({}, run.MODEL, 100, 50, 2, reported_cost_usd=Decimal(".001")),
+            )
+        return super().generate(*args, **kwargs)
+
+
+def test_empty_content_flake_is_repaired_and_does_not_stop_the_plan(session, prepared):
+    provider = EmptyReplyProvider(empty_attempts=1)
+    result = execute(prepared, provider)
+    # One measured empty-content flake gets its bounded repair and succeeds;
+    # the plan is not aborted as an infrastructure failure.
+    assert result["remaining"] == 0
+    plan, _, _ = prepared
+    session.expire_all()
+    ledger = run.ledger(session, [plan["plan_hash"]])
+    assert not ledger["unknown_charge_ids"]
+
+
+def test_terminal_empty_content_failure_is_isolated_and_does_not_stop_the_plan(
+    session, prepared
+):
+    provider = EmptyReplyProvider(empty_attempts=2)
+    result = execute(prepared, provider)
+    # Both attempts for the first case return empty content; the terminal
+    # failure stays isolated instead of stopping the remaining paid jobs.
+    assert len(provider.calls) == 63
+    assert result["remaining"] == 1
+    plan, _, _ = prepared
+    session.expire_all()
+    ledger = run.ledger(session, [plan["plan_hash"]])
+    assert not ledger["unknown_charge_ids"]
+
+
+def _interrupted_item(session, settings, conversation_id, usage, error_code=None):
+    item = enqueue(
+        session,
+        EvaluationRequest(
+            group_id="DEV", conversation_id=conversation_id, rubric_id="default", rubric_version=1
+        ),
+        settings,
+    )
+    # A crash between the running claim and the final commit leaves this state.
+    item.status = "running"
+    session.add(
+        m.ModelAttempt(
+            evaluation_id=item.evaluation_id,
+            attempt_number=1,
+            raw_output={},
+            usage=usage,
+            duration_ms=5,
+            error_code=error_code,
+        )
+    )
+    session.commit()
+    return item
+
+
+def test_reconcile_restores_recorded_attempt_costs(session, engine, settings):
+    seed(session)
+    item = _interrupted_item(
+        session,
+        settings,
+        "synthetic-1",
+        {
+            "model": run.MODEL,
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "usage_complete": True,
+            "cost_source": "provider_reported",
+            "provider_cost_usd": 0.001,
+            "transport_attempts": 1,
+            "finish_reason": "length",
+            "reasoning_tokens": 0,
+        },
+        error_code="MODEL_OUTPUT_LIMIT",
+    )
+    factory = make_session_factory(engine)
+    report = run.reconcile(factory, settings)
+    entry = next(e for e in report["candidates"] if e["evaluation_id"] == item.evaluation_id)
+    assert entry["fully_recorded"] is True and entry["status"] == "running"
+    session.expire_all()
+    # Report-only mode leaves every row untouched.
+    assert session.get(m.Evaluation, item.evaluation_id).status == "running"
+    applied = run.reconcile(factory, settings, apply=True)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.status == "failed" and item.error["code"] == "SERVER_RESTARTED"
+    assert item.usage["usage_complete"] is True
+    assert item.usage["cost_source"] == "provider_reported"
+    assert Decimal(str(item.usage["provider_cost_usd"])) == Decimal("0.001")
+    assert applied["applied"] == 1
+    session.expire_all()
+    assert not run.ledger(session, [])["unknown_charge_ids"]
+
+
+def test_reconcile_unsticks_running_job_but_keeps_unknown_spend(session, engine, settings):
+    seed(session)
+    item = _interrupted_item(session, settings, "synthetic-2", None)
+    factory = make_session_factory(engine)
+    report = run.reconcile(factory, settings, apply=True)
+    session.expire_all()
+    item = session.get(m.Evaluation, item.evaluation_id)
+    assert item.status == "failed" and item.error["code"] == "SERVER_RESTARTED"
+    assert not (item.usage or {}).get("usage_complete")
+    assert report["remaining_unknown"] == 1

@@ -1,6 +1,6 @@
 # Safe DEV continuation — explicit approval required
 
-Current state: 6 reusable successes; 58 missing + 1 failed. No new paid call in the
+Current state: 9 reusable successes; 55 missing + 1 failed. No new paid call in the
 reliability fix. The production model and reasoning effort stay unchanged. Maximum
 combined budget target is $3 including $0.041904713 already recorded. See
 [LLM_RELIABILITY_FIX_REPORT.md](LLM_RELIABILITY_FIX_REPORT.md) for evidence and limits.
@@ -69,13 +69,14 @@ new count/reserve/hash; obtain separate approval. Only then use this PAID templa
   --approve-plan THE_NEW_REVIEWED_HASH --max-usd 3.00 --workers-stopped
 ```
 
-If the owner separately approves bypassing the pilot, the CURRENT full plan is
-reliability-full-v2.json with hash
-caeba0de78525692842bcc1afff6496d8e0ad044002ad2e2f466c1d582f88652.
-Its 59-job reserve is $2.756421108; prior+reserve $2.798325821. Use the same run
-interface with that exact path/hash only under explicit full-run approval. Once
-pilot creates reservations, this pre-pilot full plan must be replaced by the child
-plan above: it cannot hide new pilot lineage/spend.
+If the owner separately approves bypassing the pilot, note that the previously
+frozen full plan (`reliability-full-v2.json`, hash `caeba0de…8652`) is now
+intentionally stale: the reliability hardening changed `runner_hash`,
+`pipeline_hash` and the pinned runtime keys, so `verify` rejects it with
+`CODE_OR_SETTINGS_CHANGED_REPLAN`. Re-run the free `prepare` step after this
+review, confirm the fresh hash/reserve, and only then seek explicit full-run
+approval. Once a pilot creates reservations, the pre-pilot full plan must be
+replaced by the child plan above: it cannot hide new pilot lineage/spend.
 
 Prices older than 24 hours, changed code/settings or changed source/rubric require
 fresh preparation and approval. Integrity-checked historical plans can be parents
@@ -114,7 +115,7 @@ docker compose start backend
 python3 scripts/smoke.py
 ```
 
-Current file remains 6 ok / 59 error, unchanged from the earlier authorized partial
+Current file remains 9 ok / 56 error, unchanged from the earlier authorized partial
 run. PROD is not required until control release. Future import/evaluation/export
 uses the actual organizer group ID and separate spending approval; see
 [SUBMISSION_EXPORT_RUNBOOK.md](SUBMISSION_EXPORT_RUNBOOK.md). No push is automatic.

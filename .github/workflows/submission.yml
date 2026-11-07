@@ -24,13 +24,20 @@ jobs:
       - name: Independent validator regressions (synthetic data only in temporary directories)
         run: python -m unittest discover -s scripts/tests -p 'test_submission*.py' -v
       - name: Compile standalone release tools
-        run: python -m py_compile scripts/validate_submission.py scripts/check_submission_delivery.py scripts/drill_submission_delivery.py
+        run: python -m py_compile scripts/validate_submission.py scripts/check_submission_delivery.py scripts/drill_submission_delivery.py scripts/generate_submission_reference.py
       - name: Validate existing real artifacts or require both at final delivery
         shell: bash
         run: |
           set -euo pipefail
+          # The committed dev reference carries conversation IDs only (already
+          # public in results/dev/results.json), so CI verifies source identity
+          # without transcripts. Evidence bounds stay verified locally through
+          # verify_submission_db.py and the pre-push final gate with the
+          # transcript-bearing reference in gitignored data/.
           if [[ "$FINAL_SUBMISSION" == "1" ]]; then
-            python scripts/check_submission_delivery.py --final
+            python scripts/check_submission_delivery.py --final \
+              --dev-source scripts/submission_reference_dev.json
           else
-            python scripts/check_submission_delivery.py
+            python scripts/check_submission_delivery.py \
+              --dev-source scripts/submission_reference_dev.json
           fi

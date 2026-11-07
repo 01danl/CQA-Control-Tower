@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # None preserves the provider default; changes require a new approved run plan.
     llm_reasoning_effort: Literal["max", "high", "low", "none"] | None = None
     llm_max_output_tokens: int = Field(default=8192, ge=1024, le=32768)
+    # False preserves the live provider-default reasoning configuration on every
+    # request, including output-limit repairs. When true, a repair attempt that
+    # follows MODEL_OUTPUT_LIMIT explicitly sends reasoning disabled so the
+    # retry cannot drown its JSON budget in reasoning tokens again. Output
+    # validation is identical either way; enabling requires an approved A/B.
+    llm_repair_relax_reasoning: bool = False
     llm_input_price_usd_per_1m: Decimal | None = None
     llm_output_price_usd_per_1m: Decimal | None = None
     openai_base_url: str = Field(
@@ -41,6 +47,13 @@ class Settings(BaseSettings):
     retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
     max_retry_delay_seconds: float = Field(default=5, ge=0, le=60)
     batch_concurrency: int = Field(default=2, ge=1, le=8)
+    # True keeps the no-login local demo fully functional. Repeated equivalent
+    # paid requests are deduplicated to the existing work; set true only to run
+    # a deliberate re-evaluation of already billed conversations.
+    allow_paid_reevaluation: bool = False
+    # Set false on any deployment that exposes the API beyond loopback: paid
+    # endpoints then refuse to enqueue work (403 PAID_WORK_DISABLED).
+    paid_work_enabled: bool = True
     max_pending_evaluations: int = Field(default=1000, ge=1, le=10000)
     worker_poll_seconds: float = Field(default=0.5, gt=0, le=10)
 

@@ -75,6 +75,18 @@ def main():
         )
         print(json.dumps(report))
         return 0
+    except ValidationError as error:
+        # Failures from the independent validator carry a precise safe code.
+        print(
+            json.dumps(
+                {
+                    "status": "FAIL",
+                    "code": error.code,
+                    "location": error.location,
+                }
+            )
+        )
+        return 1
     except Exception:
         # No decoder/DB/provider exceptions, transcript fields or credentials in logs.
         print(json.dumps({"status": "FAIL", "code": "DB_SUBMISSION_VERIFICATION_FAILED"}))

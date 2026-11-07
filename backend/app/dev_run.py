@@ -22,7 +22,13 @@ from app.benchmark import catalog, digest, load, pipeline_hash
 from app.config import Settings
 from app.contracts import EvaluationRequest
 from app.db import make_engine, make_session_factory
-from app.evaluation import enqueue, queue_lock, run_evaluation
+from app.evaluation import (
+    enqueue,
+    preserve_interrupted_usage,
+    queue_lock,
+    run_evaluation,
+    usage_summary,
+)
 from app.export_results import (
     MODEL,
     completed_result,
@@ -33,7 +39,7 @@ from app.export_results import (
     write_atomic,
 )
 from app.privacy import silence_transport_logs
-from app.providers import OpenAIProvider
+from app.providers import OpenAIProvider, ProviderReply
 from app.repository import conversation_detail
 from app.rubrics import get_rubric
 
@@ -49,8 +55,16 @@ RUNTIME_KEYS = (
     "batch_concurrency",
     "llm_reasoning_effort",
     "llm_max_output_tokens",
+    "llm_repair_relax_reasoning",
 )
-ISOLATED_FAILURES = {"INVALID_MODEL_OUTPUT", "MODEL_OUTPUT_LIMIT", "MODEL_REFUSAL"}
+# MODEL_EMPTY_CONTENT is model output pathology with measured cost, not
+# infrastructure failure: one flake must not stop the whole paid plan.
+ISOLATED_FAILURES = {
+    "INVALID_MODEL_OUTPUT",
+    "MODEL_OUTPUT_LIMIT",
+    "MODEL_REFUSAL",
+    "MODEL_EMPTY_CONTENT",
+}
 MAX_CONSECUTIVE_FAILURES = 3
 
 
@@ -380,6 +394,137 @@ def coordinator_lock(factory):
                 session.execute(text("SELECT pg_advisory_unlock(782499)"))
 
 
+def _attempt_usable(usage):
+    """A recorded attempt whose provider-reported accounting is complete."""
+    return (
+        isinstance(usage, dict)
+        and usage.get("usage_complete") is True
+        and type(usage.get("input_tokens")) is int
+        and type(usage.get("output_tokens")) is int
+        and usage.get("cost_source") == "provider_reported"
+        and type(usage.get("provider_cost_usd")) in (int, float)
+        and isinstance(usage.get("model"), str)
+    )
+
+
+def reconcile(factory, settings, apply=False):
+    """Report spend accounting for interrupted jobs; --apply restores recorded costs.
+
+    Never invents cost: only provider-reported per-attempt usage already
+    persisted in model_attempts is re-aggregated onto the evaluation. Jobs whose
+    attempts are incomplete stay unknown and keep blocking paid execution.
+    """
+    with factory() as session:
+        items = session.scalars(select(m.Evaluation)).all()
+        candidates = []
+        for item in items:
+            # Only jobs that block the ledger as unknown spend (or are still
+            # stuck in running after a crash) are reconciliation candidates.
+            if item.status not in {"running", "failed"}:
+                continue
+            if item.status == "failed" and (item.usage or {}).get("usage_complete"):
+                continue
+            attempts = session.scalars(
+                select(m.ModelAttempt)
+                .where(m.ModelAttempt.evaluation_id == item.evaluation_id)
+                .order_by(m.ModelAttempt.attempt_number)
+            ).all()
+            usable = [_attempt_usable(attempt.usage) for attempt in attempts]
+            entry = {
+                "evaluation_id": item.evaluation_id,
+                "conversation_id": item.conversation_id,
+                "status": item.status,
+                "usage_complete": bool((item.usage or {}).get("usage_complete")),
+                "attempts": len(attempts),
+                "recorded_attempts": sum(usable),
+                "fully_recorded": bool(attempts) and all(usable),
+                "recorded_cost_usd": str(
+                    sum(
+                        (
+                            Decimal(str(attempt.usage["provider_cost_usd"]))
+                            for attempt, ok in zip(attempts, usable, strict=True)
+                            if ok
+                        ),
+                        Decimal(0),
+                    )
+                ),
+            }
+            candidates.append(entry)
+            if not apply:
+                continue
+            if entry["fully_recorded"]:
+                replies = [
+                    ProviderReply(
+                        raw_output={},
+                        model=attempt.usage["model"],
+                        input_tokens=attempt.usage["input_tokens"],
+                        output_tokens=attempt.usage["output_tokens"],
+                        duration_ms=attempt.duration_ms,
+                        complete=attempt.usage.get("finish_reason") == "stop",
+                        usage_complete=True,
+                        transport_attempts=attempt.usage.get("transport_attempts") or 1,
+                        reported_cost_usd=Decimal(str(attempt.usage["provider_cost_usd"])),
+                        finish_reason=attempt.usage.get("finish_reason"),
+                        reasoning_tokens=attempt.usage.get("reasoning_tokens"),
+                    )
+                    for attempt in attempts
+                ]
+                item.usage = usage_summary(
+                    replies, settings, repair_attempts=len(attempts) - 1
+                )
+                if item.status == "running":
+                    item.status = "failed"
+                    item.original_score = None
+                    item.results = []
+                    item.needs_human_review = True
+                    item.error = {
+                        "code": "SERVER_RESTARTED",
+                        "message": "Run interrupted; submit a new evaluation or retry the batch",
+                        "details": None,
+                    }
+                session.add(
+                    m.AuditEvent(
+                        evaluation_id=item.evaluation_id,
+                        kind="usage_reconciled",
+                        payload={
+                            "attempts": len(attempts),
+                            "provider_cost_usd": entry["recorded_cost_usd"],
+                        },
+                    )
+                )
+            elif item.status == "running":
+                # Unstick the job without inventing cost: usage stays unknown
+                # and keeps blocking paid execution until verified externally.
+                preserve_interrupted_usage(session, item)
+                item.status = "failed"
+                item.original_score = None
+                item.results = []
+                item.needs_human_review = True
+                item.error = {
+                    "code": "SERVER_RESTARTED",
+                    "message": "Run interrupted; submit a new evaluation or retry the batch",
+                    "details": None,
+                }
+                session.add(
+                    m.AuditEvent(
+                        evaluation_id=item.evaluation_id,
+                        kind="evaluation_interrupted",
+                        payload={"code": "SERVER_RESTARTED"},
+                    )
+                )
+        applied = sum(1 for entry in candidates if entry["fully_recorded"]) if apply else 0
+        session.commit()
+        return {
+            "candidates": candidates,
+            "reconstructable": sum(1 for entry in candidates if entry["fully_recorded"]),
+            "applied": applied,
+            "remaining_unknown": sum(1 for entry in candidates if not entry["fully_recorded"]),
+            "note": "Fully recorded jobs were reconciled from provider-reported attempt usage."
+            if apply
+            else "Report only; rerun with --apply to restore recorded costs.",
+        }
+
+
 def execute(factory, plan, settings, approval, budget, workers_stopped=False, provider=None):
     verify(plan, settings)
     validate_prices(plan["prices"])
@@ -522,7 +667,7 @@ def execute(factory, plan, settings, approval, budget, workers_stopped=False, pr
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "status", "run"))
+    parser.add_argument("command", choices=("prepare", "status", "run", "reconcile"))
     parser.add_argument(
         "--plan",
         type=Path,
@@ -538,6 +683,11 @@ def main():
     parser.add_argument("--approve-plan")
     parser.add_argument("--max-usd", type=Decimal)
     parser.add_argument("--workers-stopped", action="store_true")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="reconcile only: restore provider-reported attempt costs onto interrupted evaluations",
+    )
     args = parser.parse_args()
     engine = None
     try:
@@ -546,13 +696,17 @@ def main():
             raise RunError("PLAN_MUST_BE_IN_IGNORED_PRIVATE_DIRECTORY")
         if args.command == "run" and (not args.approve_plan or args.max_usd is None):
             raise RunError("EXPLICIT_APPROVAL_REQUIRED_BEFORE_ANY_PAID_REQUEST")
-        if args.command != "prepare" and (
-            args.only_conversation or args.retry_from or args.prices_file
+        if args.command not in {"prepare", "reconcile"} and (
+            args.only_conversation or args.retry_from or args.prices_file or args.apply
         ):
             raise RunError("SCOPE_AND_LINEAGE_FLAGS_ARE_PREPARE_ONLY")
         settings = Settings()
         engine = make_engine(settings)
         factory = make_session_factory(engine)
+        if args.command == "reconcile":
+            result = reconcile(factory, settings, apply=args.apply)
+            print(json.dumps({"status": "PASS", "operation": "reconcile", **result}, indent=2))
+            return 0
         if args.command == "prepare":
             prices = load(args.prices_file) if args.prices_file else catalog(MODEL)
             with factory() as session:
