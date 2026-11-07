@@ -9,7 +9,8 @@ npm ci --prefix frontend
 npm run dev --prefix frontend
 ```
 
-Open http://127.0.0.1:5173. Default mode is **DEV / MOCK**, group SYNTHETIC.
+Open http://127.0.0.1:5173. Default mode is **LIVE API**, group DEV. Start the real backend first.
+For explicitly synthetic development use `VITE_API_MODE=mock npm run dev --prefix frontend`.
 Mock assessments are synthetic UI demonstrations, not LLM results or quality metrics.
 Mock writes persist in browser localStorage (`cqa-synthetic-v2`). Clear that key to reset.
 Mock health always calls the real backend, so an offline API indicator is expected
@@ -43,7 +44,7 @@ proxies `/api` to backend. This is not a Dynamics integration.
    matching recording exists, so audio availability is stated honestly.
 2. In Чек-листы, replace a criterion's name and instructions, adjust weight or numeric
    steps. Add/remove/reorder criteria. Exclusion removes a criterion only from the
-   new version: the frozen contract has no `enabled` field. N/A needs an explicit
+   new version. When the backend supplies `enabled`, the editor also preserves and edits it. N/A needs an explicit
    rule. Choose save, then confirm. This creates v2 and selects it for evaluation.
 3. Open a control conversation, select v2 and evaluate. Queued/running states poll
    automatically, completed results display API totals. History opens the unchanged
@@ -72,12 +73,23 @@ The demo rounds with JavaScript Math.round (ties toward positive infinity), not 
 or a rule attributed to the organizer. Mock usage is null; costs are shown only when
 provided. Low-confidence mock results explicitly request human review.
 
-Live end-to-end behavior requires implemented backend endpoints; it has not been
-validated against a running backend during this frontend task. Browser host was
-unavailable for screenshots, so visual browser verification is not claimed.
-The API does not expose an audit feed: reviewer decision fields are rendered when
-returned; no audit endpoint or event data is invented.
+Live verification and remaining blockers are recorded in `../docs/E2E_TEST_REPORT.md`.
+The live backend supplies conversation snapshots, final criterion values and audit
+events; these are rendered without inventing API data. UI session preferences persist
+across reload, while unsaved rubric edits do not.
 
-PR summary: implement the conversations/import/batch workspace, transcript evidence
-review, immutable rubric editor, operator appeals and reviewer resolution against
-frozen REST v1; add a persistent synthetic adapter and one-variable live switch.
+## Integrated tests and live demo preparation
+
+Start PostgreSQL/FastAPI and Vite, then run:
+
+```sh
+npm run test:e2e --prefix frontend
+CQA_LIVE_AI=1 npm run test:e2e --prefix frontend
+npm run demo:prepare --prefix frontend
+```
+
+The full AI test is opt-in because it requires organizer/model settings and consumes
+real model usage. The import-success test remains a real failure if the dataset is
+not configured. Default Playwright browser is installed Google Chrome; use
+`CQA_BROWSER_CHANNEL=chromium` for installed Playwright Chromium.
+See `../docs/DEMO_PREP_CHECKLIST.md` and `../docs/DEMO_SCRIPT.md`.

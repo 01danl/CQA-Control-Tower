@@ -27,8 +27,8 @@ navigation/unmount; failed polling exposes retry and never fabricates a score.
 
 Criteria names, sections, weights and legal values come from exact rubric versions
 or evaluation snapshots. The editor validates before an explicit save confirmation;
-server validation is authoritative. No enabled field is added: excluding a criterion
-only affects the newly saved version. Old snapshots remain intact.
+server validation is authoritative. When the backend supplies enabled, its value is preserved and editable.
+Removing a criterion only affects the newly saved version. Old snapshots remain intact.
 
 Evidence must reference an existing zero-based transcript turn and match its original
 timestamp/speaker. Support quotes must be exact substrings; expected_missing cannot
@@ -38,5 +38,5 @@ scroll/focus/highlight without replacing the application route.
 
 Appeal queue filters open/resolved; decisions use only legal allowed_values or na
 when permitted. Uphold sends no new_value. The resolution response is followed by
-refetching evaluation data. Optional review_override decision metadata is rendered
-without assuming an undocumented audit feed or endpoint. No shared schema changed.
+refetching evaluation data. Backend-supplied final_value/final_weighted_points, review_override metadata,
+conversation_snapshot and audit_events are rendered directly; no endpoint is added. No shared schema changed.

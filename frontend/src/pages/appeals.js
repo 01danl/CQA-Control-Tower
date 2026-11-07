@@ -8,9 +8,10 @@ export async function appealsPage(api, ctx) {
   filter.addEventListener('change', () => { ctx.appealStatus = filter.value; ctx.reload(); });
   const panel = el('div'); const state = notice();
   const list = el('div', { className: 'appeal-list' }, ...items.map((a) => button(`${a.criterion_id} · ${a.created_at} · ${a.comment}`, () => perform(state, 'Загрузка апелляции…', async () => {
+    ctx.selectedAppeal = a.appeal_id;
     const evaluation = await api.evaluation(a.evaluation_id);
     const rubric = evaluation.rubric_snapshot ?? await api.rubric(evaluation.rubric_id, evaluation.rubric_version);
-    const conversation = await api.conversation(evaluation.conversation_id, evaluation.group_id);
+    const conversation = evaluation.conversation_snapshot ?? await api.conversation(evaluation.conversation_id, evaluation.group_id);
     const criterion = rubric.criteria.find((c) => c.id === a.criterion_id);
     const result = evaluation.results.find((r) => r.criterion_id === a.criterion_id);
     const detail = evaluationDetail(evaluation, conversation, rubric);
@@ -24,11 +25,13 @@ export async function appealsPage(api, ctx) {
         if (!reason.value.trim()) throw new Error('Укажите обоснование решения.');
         const body = { decision: decision.value, reason: reason.value.trim() };
         if (body.decision === 'override') body.new_value = allowedOutcomes(criterion).find((v) => String(v) === outcome.value);
-        await api.resolve(a.appeal_id, body); ctx.flash = 'Решение сохранено. Итоговая оценка обновлена.'; ctx.reload();
+        await api.resolve(a.appeal_id, body); ctx.appealStatus = 'resolved'; ctx.flash = 'Решение сохранено. Итоговая оценка обновлена.'; ctx.reload();
       }, event.currentTarget)), feedback);
     } else info.append(el('p', { className: 'muted', text: a.reason ?? 'Для рассмотрения выберите роль Reviewer.' }));
     panel.replaceChildren(info, detail); state.textContent = '';
   }), true)));
+  const selected = items.findIndex((a) => a.appeal_id === ctx.selectedAppeal);
+  if (selected >= 0) list.children[selected].click();
   return el('section', {}, heading('КОНТРОЛЬ / АПЕЛЛЯЦИИ', 'Решение с обоснованием', 'Исходный ответ остаётся в истории. Ревьюер принимает решение по критерию и доказательствам.'), field('Очередь', filter), state,
     items.length ? list : el('p', { className: 'card empty', text: 'В этой очереди апелляций нет.' }), panel);
 }
