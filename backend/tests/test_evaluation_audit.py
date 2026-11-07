@@ -328,6 +328,8 @@ def test_history_uses_original_transcript_after_reimport(session, engine, settin
 
 
 def test_restart_preserves_completed_attempt_usage_as_incomplete(session, engine, settings):
+    from decimal import Decimal
+
     from app.batch import recover_unfinished
     from app.evaluation import usage_summary
     from app.models import ModelAttempt
@@ -353,7 +355,17 @@ def test_restart_preserves_completed_attempt_usage_as_incomplete(session, engine
             duration_ms=20,
             error_code="INVALID_MODEL_OUTPUT",
             usage=usage_summary(
-                [ProviderReply({}, "synthetic-observed-model", 100, 50, 20)], settings
+                [
+                    ProviderReply(
+                        {},
+                        "synthetic-observed-model",
+                        100,
+                        50,
+                        20,
+                        reported_cost_usd=Decimal(".001"),
+                    )
+                ],
+                settings,
             ),
         )
     )
@@ -365,6 +377,7 @@ def test_restart_preserves_completed_attempt_usage_as_incomplete(session, engine
     assert stored.usage["output_tokens"] == 50
     assert stored.usage["usage_complete"] is False
     assert stored.usage["estimated_cost_usd"] is None
+    assert stored.usage["provider_cost_usd"] is None
 
 
 def test_all_5184_initial_legal_outcomes_against_fraction_reference():

@@ -1,6 +1,9 @@
 # Real DEV / LLM results
 
-**NOT TESTED — no live evaluation results exist for this audit.**
+**Historical audit record.** Subsequent real integration on 2026-11-07 succeeded:
+65 DEV records imported idempotently and one RU Flash v4.1 evaluation completed.
+See [LIVE_INTEGRATION_REPORT.md](LIVE_INTEGRATION_REPORT.md) for current evidence.
+The remaining text records the earlier credential-free audit and its NOT TESTED state.
 
 2026-11-07 UTC · baseline 555cf39 · feat/evaluation-reliability.
 No synthetic result is represented as a real model judgment. No customer transcript,

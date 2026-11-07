@@ -3,6 +3,8 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+ARG VITE_API_MODE=live
+ENV VITE_API_MODE=$VITE_API_MODE
 RUN npm run build
 
 FROM nginx:1.28-alpine

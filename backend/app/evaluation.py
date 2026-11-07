@@ -80,6 +80,16 @@ def usage_summary(
     input_tokens = sum(r.input_tokens or 0 for r in replies) if known else None
     output_tokens = sum(r.output_tokens or 0 for r in replies) if known else None
     cost = None
+    reported_cost = (
+        sum(
+            (reply.reported_cost_usd for reply in replies if reply.reported_cost_usd is not None),
+            Decimal(0),
+        )
+        if replies
+        and not incomplete
+        and all(reply.reported_cost_usd is not None for reply in replies)
+        else None
+    )
     if (
         known
         and not incomplete
@@ -90,13 +100,20 @@ def usage_summary(
             Decimal(input_tokens or 0) * settings.llm_input_price_usd_per_1m
             + Decimal(output_tokens or 0) * settings.llm_output_price_usd_per_1m
         ) / 1000000
+    if reported_cost is not None:
+        cost = reported_cost
     return {
         "model": replies[-1].model if replies else settings.llm_model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "estimated_cost_usd": float(cost) if cost is not None else None,
         "usage_complete": known and not incomplete,
-        "cost_source": "configured_rates" if cost is not None else "unavailable",
+        "cost_source": "provider_reported"
+        if reported_cost is not None
+        else "configured_rates"
+        if cost is not None
+        else "unavailable",
+        "provider_cost_usd": float(reported_cost) if reported_cost is not None else None,
         "transport_attempts": transport_attempts,
         "transport_retries": max(0, transport_attempts - max(len(replies), repair_attempts + 1))
         if transport_attempts is not None
@@ -280,6 +297,7 @@ def preserve_interrupted_usage(session: Session, item: m.Evaluation) -> None:
     summary.update(
         usage_complete=False,
         estimated_cost_usd=None,
+        provider_cost_usd=None,
         cost_source="unavailable",
         transport_attempts=None,
         transport_retries=None,

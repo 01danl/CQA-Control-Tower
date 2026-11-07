@@ -19,14 +19,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - path: ./.env
+        required: false
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cqa}:${POSTGRES_PASSWORD:-cqa-local-placeholder}@db:5432/${POSTGRES_DB:-cqa}
-      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173","http://127.0.0.1:5173"]}
-      CQA_DATASET_URL: ${CQA_DATASET_URL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      LLM_INPUT_PRICE_USD_PER_1M: ${LLM_INPUT_PRICE_USD_PER_1M:-}
-      LLM_OUTPUT_PRICE_USD_PER_1M: ${LLM_OUTPUT_PRICE_USD_PER_1M:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -42,6 +41,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_MODE: ${VITE_API_MODE:-live}
     ports:
       - "127.0.0.1:5173:80"
     depends_on:

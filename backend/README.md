@@ -1,7 +1,7 @@
 # CQA Control Tower — Evaluation backend
 
-This branch implements every frozen `/api/v1` operation. Frontend and API-contract
-files are unchanged. All source records and model stubs in tests are synthetic.
+The backend implements every frozen `/api/v1` operation. The API contract and frontend
+business source are unchanged; Compose and the frontend build enable live mode. All source records and model stubs in tests are synthetic.
 There is no runtime mock provider and no automatic call/import on startup.
 
 ## Run
@@ -19,8 +19,8 @@ jobs failed, and starts two bounded worker threads. Use **one API process**; do 
 No Kafka, Celery, extra service or authentication setup is introduced.
 
 Readiness: <http://127.0.0.1:8000/api/v1/health>. Interactive schema:
-<http://127.0.0.1:8000/docs>. PostgreSQL host port defaults to 55432. The existing frontend
-still defaults to its labeled mock adapter; connecting the full UI belongs to developer B.
+<http://127.0.0.1:8000/docs>. PostgreSQL host port defaults to 55432. Compose builds the existing frontend in live mode at <http://127.0.0.1:5173>.
+Standalone Vite still defaults to mock; run `VITE_API_MODE=live npm run dev` for live mode.
 
 Alternative local run from root: `sh scripts/dev-backend.sh`. Or, with PostgreSQL up:
 
@@ -33,18 +33,20 @@ uv run --frozen uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ## Backend-only configuration
 
-Set credentials privately in root `.env` for Compose, or `backend/.env` for the local
-process. Never paste them into prompts or put them in `VITE_` settings. Process env
-wins over `.env`; the local backend reads root then backend `.env`. Compose's existing
-environment mapping uses root `.env`; it does not read `backend/.env`.
+Set credentials privately in `backend/.env`, using `backend/.env.example` as the
+placeholder template. Both local Settings and Compose read root `.env`, then
+`backend/.env`. Compose requires version 2.24+ for optional env files and overrides
+DATABASE_URL to its internal db service. Local Settings resolves dotenv paths from
+the source location; process environment wins. Never put secrets in VITE_ settings.
+Compose passes credentials only at backend runtime; Docker build context excludes dotenv files.
 
 | Setting | Meaning |
 | --- | --- |
 | `CQA_DATASET_URL` | Organizer signed HTTPS GET endpoint; group_id is replaced, all other raw query fields preserved |
-| `OPENAI_API_KEY` | Backend-only model key |
-| `LLM_MODEL` | Explicit structured-output-capable model; no fabricated default |
-| `LLM_INPUT_PRICE_USD_PER_1M` / `LLM_OUTPUT_PRICE_USD_PER_1M` | Actual published rates for that model, configured privately; blank = unknown cost |
-| `OPENAI_BASE_URL` | Local-process override for an HTTPS OpenAI-compatible API; default `https://api.openai.com/v1` |
+| `LLM_API_KEY` | Backend-only OpenRouter key; legacy OPENAI_API_KEY / OPENROUTER_API_KEY aliases supported |
+| `LLM_MODEL` | Default (also for blank): deepseek/deepseek-v4.1-flash, selected by the user |
+| `LLM_INPUT_PRICE_USD_PER_1M` / `LLM_OUTPUT_PRICE_USD_PER_1M` | Optional fallback rates; blank leaves estimates unavailable unless provider reports cost |
+| `LLM_BASE_URL` | HTTPS OpenAI-compatible endpoint; default https://openrouter.ai/api/v1; legacy OPENAI_BASE_URL supported |
 | `DATABASE_URL` | SQLAlchemy sync psycopg URL; existing Compose overrides host to `db:5432` |
 | `CORS_ORIGINS` | JSON array of explicit dev origins |
 | `BATCH_CONCURRENCY` | 1–8 worker threads; default 2 |
@@ -53,13 +55,16 @@ environment mapping uses root `.env`; it does not read `backend/.env`.
 | `HTTP_RETRIES` / `RETRY_BACKOFF_SECONDS` | Defaults 2 retries, .5 sec exponential backoff |
 | `MAX_RETRY_DELAY_SECONDS` | Default 5 sec: longer server Retry-After fails safely for later retry; never shorten the server delay |
 
-Additional tuning/base-URL variables apply to the local process; if needed in Compose,
-add them through an explicitly coordinated local override rather than exposing secrets
-in command arguments. Core model/dataset/rate variables are already mapped by Compose.
-An import without configuration returns safe 503 `DATASET_NOT_CONFIGURED`; a queued
-evaluation without model configuration becomes durable failed `MODEL_NOT_CONFIGURED`.
-It never turns into a stub/score. No live organizer import or paid model run was performed
-during implementation because working credentials are absent.
+All variables in backend/.env are passed into the backend by Compose, including tuning
+and base URL. New explicit environment mappings must not replace configured values with
+empty strings. Missing dataset configuration returns safe 503 DATASET_NOT_CONFIGURED;
+missing key configuration makes an evaluation durably fail MODEL_NOT_CONFIGURED.
+There is no runtime model stub. The OpenRouter adapter preserves the JSON Schema,
+uses max_tokens and require_parameters routing, and tracks returned usage.cost.
+
+One real Flash v4.1 RU evaluation and the real idempotent DEV import have been verified;
+see [live integration report](../docs/LIVE_INTEGRATION_REPORT.md) for execution evidence,
+limitations, costs and commands. No full paid batch was run.
 
 ## Implemented API
 
@@ -174,8 +179,8 @@ batch membership and source-row order. Default rubric seeding is idempotent app 
 work, not an import of mutable application code into an old migration.
 
 Per-run telemetry stores observed model name, token counts, measured wall duration and
-estimated cost from the configured rates, including repair attempts. Missing usage/rates
-produce null cost, not hardcoded zero. If HTTP retries make billed usage uncertain,
+provider-reported cost when present, otherwise estimates from configured rates,
+including repair attempts. Missing usage/cost/rates produce null, not hardcoded zero. If HTTP retries make billed usage uncertain,
 `usage_complete=false` and aggregate estimated cost is unavailable. `app.metrics` reports
 actual stored p50/p95 with the nearest-rank method, sample counts, observed tokens and
 cost coverage, without customer data. An empty DB yields no measured model entries.
@@ -193,14 +198,14 @@ no Langfuse SDK, account or external trace transmission is required.
 
 ## PR review checklist
 
-- Confirm changes are confined to backend and no raw organizer records/credentials are staged.
+- Confirm only necessary backend/infrastructure changes and no raw records/credentials are staged.
 - Run lint, mypy, both DB test modes and Alembic schema check; inspect OpenAPI operations.
 - With credentials set privately, import real DEV/control data and inspect RU/KZ/EN cases.
 - Check greeting/identification/N/A semantics manually; no unsupported accuracy claims.
 - Exercise rubric replacement/versioning and compare old/new evaluation snapshots.
 - Appeal, override/uphold, restart, verify original/final scores and audit durability.
 - Interrupt a batch, retry, verify successful matching items were not evaluated again.
-- Coordinate developer B's live API hookup; no frontend/API-contract edits in this branch.
+- Keep frontend business source and the API contract unchanged; verify the live build and proxy.
 
 ## Reliability audit
 

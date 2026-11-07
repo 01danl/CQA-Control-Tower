@@ -128,7 +128,16 @@ class DatasetClient:
                 else:
                     if response.status_code == 200:
                         try:
-                            return parse_dataset(response.json())
+                            payload = response.json()
+                            dataset = parse_dataset(payload)
+                            returned_group = payload["data"].get("dataset_group_id")
+                            if returned_group is not None and returned_group != group_id:
+                                raise ServiceError(
+                                    502,
+                                    "DATASET_GROUP_MISMATCH",
+                                    "Dataset response group does not match the request",
+                                )
+                            return dataset
                         except ValueError:
                             raise ServiceError(
                                 502, "DATASET_JSON", "Dataset returned malformed JSON"

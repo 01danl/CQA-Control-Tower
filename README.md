@@ -1,12 +1,13 @@
 # CQA Control Tower
 
-Runnable **shared foundation**, not a finished evaluation product. FastAPI + synchronous
-SQLAlchemy + Alembic + PostgreSQL; static HTML/CSS/Vanilla JavaScript + Vite. No React,
-TypeScript, login, queue infrastructure, or model/dataset calls in this bootstrap.
+Freedom Broker conversation quality review: FastAPI, SQLAlchemy, Alembic, PostgreSQL;
+HTML/CSS/Vanilla JavaScript + Vite. Includes versioned rubrics, real dataset/LLM adapters,
+verified evidence, deterministic scoring, appeals and audit history. No React or TypeScript.
+See [live integration report](docs/LIVE_INTEGRATION_REPORT.md) for actual execution evidence.
 
 ## Cold start (one command)
 
-Prerequisites: Docker Desktop/Engine running and Docker Compose v2+; first build needs
+Prerequisites: Docker Desktop/Engine running and Docker Compose 2.24+; first build needs
 internet. Run from the repository root:
 
 ```sh
@@ -20,12 +21,13 @@ docker compose up -d --build --wait --wait-timeout 120
 PostgreSQL is exposed only on `127.0.0.1:55432` by default, avoiding an existing local
 server on 5432. Override `POSTGRES_PORT` and the local `DATABASE_URL` together if needed.
 
-No `.env` or credentials required for this foundation. Compose uses an explicitly
-placeholder local DB password and binds all published ports to loopback. The database
-persists in `postgres_data`; startup applies Alembic migrations before serving traffic.
-The frontend proxies `/api` to backend and displays **DEV / MOCK** on both views.
-Business views use three invented RU/KZ/EN conversations and one invented result;
-the readiness indicator always calls the real backend and database.
+Configure credentials privately in `backend/.env` using `backend/.env.example` for variable
+names; do not overwrite an existing private file. Compose reads root `.env`, then
+`backend/.env` at backend runtime. The selected model is `deepseek/deepseek-v4.1-flash`
+via OpenRouter; an empty LLM_MODEL uses that default. Secrets are excluded from Git and
+Docker build contexts. Compose builds the existing frontend with VITE_API_MODE=live.
+PostgreSQL persists in postgres_data; startup applies migrations and seeds the initial
+eight-criterion rubric. No import or paid evaluation runs on startup.
 
 ```sh
 python3 scripts/smoke.py
@@ -34,7 +36,7 @@ docker compose down
 ```
 
 `down` retains the DB volume. No downloaded organizer records or customer text are
-included. The mock rubric has one illustrative criterion and is **not** initial rubric v1.
+included. Standalone mock mode is explicitly labeled and does not represent real LLM results.
 
 ## Local development (two terminals, two commands)
 
@@ -57,14 +59,13 @@ with Ctrl-C and the DB with `docker compose stop db`.
 
 Optional configuration: copy root `.env.example` to root `.env` locally. Never commit
 `.env`. Local backend loads root `.env`, then `backend/.env` (latter overrides);
-process environment wins. Root Compose reads root `.env` only. `CORS_ORIGINS` is a
+process environment wins. Compose also reads backend/.env; DATABASE_URL is overridden to the internal db service. `CORS_ORIGINS` is a
 JSON array of explicit origins, not a comma-separated string. When changing the local
 DB placeholder password, keep `DATABASE_URL` consistent; URL-encode special password
 characters. Existing PostgreSQL volumes retain their original credentials.
 
 Model/dataset settings are reserved backend-only configuration. Blank pricing is
-unconfigured (`null`), never a zero cost claim. `backend/.env.example` from the starter
-is preserved; use the root example for the documented runnable setup. No secret is
+unconfigured (`null`), never a zero cost claim. Use backend/.env.example for the current OpenRouter configuration. No secret is
 ever placed in a `VITE_` variable, frontend fixture, browser response or build argument.
 
 ## Checks
@@ -80,8 +81,9 @@ uv run --frozen alembic check
 
 Migration CLI checks need the running PostgreSQL from either startup path. Pytest
 uses isolated SQLite DBs without PostgreSQL or credentials; production/Compose always
-uses PostgreSQL. The unit suite verifies health success/failure, safe errors, OpenAPI,
-CORS and migration upgrade/downgrade/idempotency. PostgreSQL is additionally used in CI.
+uses PostgreSQL. The backend suite covers import, rubric versions, scoring/evidence, provider failures,
+appeals, job recovery and migrations. Also run `uv run --frozen pytest --postgres`
+for disposable PostgreSQL test schemas. PostgreSQL is additionally used in CI.
 
 ```sh
 cd frontend
@@ -107,34 +109,41 @@ python3 scripts/smoke.py
 GitHub Actions runs backend lint/tests/PostgreSQL migrations/readiness, frontend
 lint/tests/build, and Compose validation. Its presence does not mean a remote run occurred.
 
-## Scope and handoff
+## Live pipeline and scope
 
-Only `GET /api/v1/health` is implemented on the backend. It executes `SELECT 1` and
-returns the frozen health response, or HTTP 503 with the frozen error envelope. Other
-API paths return a structured 404; no placeholder backend scores or silently mocked
-responses. `/docs` and `/openapi.json` describe the implemented API subset.
+The backend implements all frozen API operations and the existing frontend supports
+import, single-conversation evaluation, results, evidence navigation and appeals.
+Compose defaults to live mode. Standalone Vite defaults to mock: run
+`VITE_API_MODE=live npm run dev` in frontend/ for live mode. There is no mock fallback
+on live API errors. Run one backend API process; restart recovery assumes exclusive
+worker ownership. No Dynamics 365 integration or compatibility test is claimed.
 
-The frontend's single API adapter defaults to `mock`. `VITE_API_MODE=live npm run dev`
-switches its business reads to real endpoints; until developer A implements them, the
-UI deliberately displays the API error with retry. No silent fallback. Queued/running/
-failed results are handled; polling and mutation flows are the next implementation phase.
+Non-paid real dataset verification from root:
 
-See [architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md), and
-[frontend contracts](frontend/CONTRACTS.md). Source requirements remain
-[product spec](docs/01_PRODUCT_SPEC.md) and [API contract](docs/02_API_CONTRACT.md).
-Original `README_SETUP.md`, starter docs/prompts and backend env example are unchanged.
+```sh
+docker compose exec -T backend python -m app.audit_live --import-dev
+```
 
-- Developer A: `backend/**`, `infra/**` if introduced, scoring/evaluation tests.
-- Developer B: `frontend/**`, UI tests.
-- Root configuration and frozen contract changes require coordination. No business
-  implementation or changes in the other developer's domain after this handoff without agreement.
+This fetches and imports DEV twice, validates the expected distribution and checks
+idempotence and preservation without printing customer data or signed URLs.
 
-Next: implement import and rubric persistence, deterministic scoring/evidence checks,
-model adapter, appeals/audit, then connect the editor/evaluation/reviewer UI. Round future
-Decimal score totals with **ROUND_HALF_UP** to two decimals (project decision, not a
-PDF requirement); scoring and its tests are intentionally **not implemented** here.
-No actual LLM call, quality benchmark, token cost or latency has been measured.
+Explicitly paid, ONE RU conversation through the existing frontend and real API:
 
-This scaffold is designed for later packaging as Dynamics 365 HTML web resources
-(single mount root, scoped CSS, relative assets, hash navigation). There is no Dynamics
-integration or claim of compatibility testing with Dynamics yet.
+```sh
+node scripts/live-smoke.mjs --evaluate-one-ru
+```
+
+Requires frontend/node_modules (npm ci in frontend/). The jsdom smoke uses actual HTTP,
+blocks batch submission and a second evaluation, and prints only safe metadata.
+Each invocation creates a new paid evaluation. Do not run a full 65-record batch
+without a cost estimate and approval. Read-only evidence/scoring recheck:
+
+```sh
+backend/.venv/bin/python scripts/verify-live-evaluation.py EVALUATION_UUID
+```
+
+See [backend configuration](backend/README.md), [architecture](docs/ARCHITECTURE.md),
+[product specification](docs/01_PRODUCT_SPEC.md), [API contract](docs/02_API_CONTRACT.md),
+[frontend contracts](frontend/CONTRACTS.md), and
+[live integration results](docs/LIVE_INTEGRATION_REPORT.md).
+The API contract and frontend business source are unchanged by this integration.

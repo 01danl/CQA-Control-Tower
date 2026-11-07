@@ -20,6 +20,7 @@ def settings():
         retry_backoff_seconds=0,
         worker_poll_seconds=0.02,
         openai_api_key=None,
+        openai_base_url="https://api.openai.com/v1",
         llm_model=None,
         cqa_dataset_url=None,
         llm_input_price_usd_per_1m=None,

@@ -44,6 +44,7 @@ class Usage(StrictModel):
     estimated_cost_usd: float | None
     usage_complete: bool
     cost_source: str
+    provider_cost_usd: float | None = None
     input_price_usd_per_1m: float | None
     output_price_usd_per_1m: float | None
     transport_attempts: int | None = None

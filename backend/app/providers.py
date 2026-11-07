@@ -3,6 +3,7 @@
 import json
 import time
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
@@ -53,6 +54,7 @@ class ProviderReply:
     complete: bool = True
     usage_complete: bool = True
     transport_attempts: int = 1
+    reported_cost_usd: Decimal | None = None
 
 
 class ProviderFailure(ServiceError):
@@ -150,6 +152,11 @@ class OpenAIProvider:
             },
         }
         started = time.monotonic()
+        if base.hostname == "openrouter.ai":
+            body["max_tokens"] = body.pop("max_completion_tokens")
+            body["provider"] = {"require_parameters": True}
+            body["usage"] = {"include": True}
+            body.pop("store", None)
         with httpx.Client(
             timeout=settings.llm_timeout_seconds,
             transport=self.transport,
@@ -186,7 +193,7 @@ class OpenAIProvider:
                         raise ProviderFailure(
                             502,
                             "MODEL_HTTP",
-                            "Model rejected the request; check server configuration",
+                            f"Model provider returned HTTP {response.status_code}; check server configuration",
                             transport_attempts=attempt + 1,
                         )
                     if attempt == settings.http_retries:
@@ -243,6 +250,15 @@ class OpenAIProvider:
                 input_tokens = None
             if type(output_tokens) is not int or output_tokens < 0:
                 output_tokens = None
+            reported_cost = None
+            raw_cost = usage.get("cost")
+            if type(raw_cost) in (int, float, str):
+                try:
+                    parsed_cost = Decimal(str(raw_cost))
+                    if parsed_cost.is_finite() and parsed_cost >= 0:
+                        reported_cost = parsed_cost
+                except InvalidOperation:
+                    pass
             reply = ProviderReply(
                 raw_output=response.text,
                 model=model,
@@ -252,6 +268,7 @@ class OpenAIProvider:
                 complete=False,
                 usage_complete=usage_complete,
                 transport_attempts=transport_attempts,
+                reported_cost_usd=reported_cost,
             )
             choice = payload["choices"][0]
             if not isinstance(choice, dict):
@@ -288,6 +305,7 @@ class OpenAIProvider:
                 complete=choice.get("finish_reason") == "stop",
                 usage_complete=usage_complete,
                 transport_attempts=transport_attempts,
+                reported_cost_usd=reported_cost,
             )
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             raise ProviderFailure(
