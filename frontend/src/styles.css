@@ -116,3 +116,30 @@ html, body { margin: 0; min-width: 320px; }
 #cqa-app .message-text { white-space: pre-wrap; }
 #cqa-app .audit { margin-top: 22px; font-size: 13px; }
 #cqa-app .audit summary { cursor: pointer; font-weight: 650; }
+#cqa-app .message { border-left: 4px solid #6b7c83; }
+#cqa-app .message.operator { background: #e7f5ef; border-left-color: #08765d; }
+#cqa-app .message.client { background: #eef3ff; border-left-color: #365bad; }
+#cqa-app .message.bot { background: #f4effb; border-left: 4px dashed #775298; }
+#cqa-app .message.system { background: #f1f2f4; border-left: 4px dotted #56616e; }
+#cqa-app .message-meta { color: #405461; font-weight: 650; font-size: 11px; }
+#cqa-app .outcome { white-space: normal; }
+#cqa-app .outcome-yes, #cqa-app .outcome-clear { background: #dff2e7; color: #145336; }
+#cqa-app .outcome-no { background: #fff0dc; color: #784508; }
+#cqa-app .outcome-na { background: #eef0f3; color: #435164; }
+#cqa-app .outcome-numeric { background: #e8efff; color: #244b91; font-variant-numeric: tabular-nums; }
+#cqa-app .outcome-violation { background: #ffe6e1; color: #962a21; font-weight: 750; }
+#cqa-app .outcome-unknown { background: #f1f2f4; color: #58606a; }
+#cqa-app .criterion-violation { border-left: 4px solid #b43b2d; padding-left: 16px; }
+#cqa-app .criterion:focus { outline: 3px solid #b87b24; outline-offset: 5px; }
+#cqa-app .decision { color: #24466c; }
+#cqa-app .violation-preview { margin-top: 12px; width: min(48ch, 100%); min-width: 220px; white-space: normal; }
+#cqa-app .violation-preview summary, #cqa-app .judge-help summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 650; }
+#cqa-app .violation-finding { margin-top: 12px; padding: 14px; border: 1px solid #e1b8ae; border-radius: 7px; background: #fffaf8; overflow-wrap: anywhere; }
+#cqa-app .violation-finding p { font-size: 12px; }
+#cqa-app .judge-help { margin: 14px 0; max-width: 72ch; }
+#cqa-app .judge-help p { font-size: 13px; }
+#cqa-app .filters { grid-template-columns: 1.4fr 1fr 1fr 1fr 1.3fr; }
+@media (max-width: 1100px) { #cqa-app .filters { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 680px) { #cqa-app .filters { grid-template-columns: 1fr; } }
+/* Evidence selection remains visible over every speaker's background. */
+#cqa-app .message.highlighted { background: #fff3cc; border-color: #b77b1c; }

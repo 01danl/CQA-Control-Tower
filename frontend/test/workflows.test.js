@@ -104,7 +104,7 @@ test('DOM smoke: replace criterion, confirm v2, evaluate, appeal and resolve as 
   click('Проверить и сохранить версию'); assert.equal(root.querySelector('.confirm').hidden, false);
   click('Подтвердить сохранение'); await tick(); assert.match(root.textContent, /Сохранено:.*v2/);
   dom.window.location.hash = '#/conversations/SYNTHETIC/synthetic-en'; await tick();
-  click('Оценить диалог'); await tick(); await tick();
+  click('Оценить диалог'); click('Подтвердить платную оценку'); await tick(); await tick();
   assert.match(root.textContent, /Выполняется/);
   click('Обновить'); await tick(); assert.match(root.textContent, /Updated contact/);
   const comment = root.querySelector('.appeal-form textarea'); comment.value = 'Please review greeting';

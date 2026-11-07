@@ -4,7 +4,7 @@ import { validateRubric } from '../validation.js';
 
 export async function rubricsPage(api, ctx) {
   const summaries = (await api.rubrics()).items;
-  const picker = rubricPicker(summaries);
+  const picker = rubricPicker(summaries, ctx.rubric);
   const state = notice();
   const editor = el('div');
   const page = el('section', {}, heading('КОНФИГУРАЦИЯ / ЧЕК-ЛИСТЫ', 'Правила вашей команды', 'Каждое сохранение создаёт новую версию. Прошлые оценки сохраняют свой чек-лист.'),
@@ -59,11 +59,12 @@ export async function rubricsPage(api, ctx) {
         edit(saved);
       }, event.currentTarget)), button('Отмена', () => { confirmation.hidden = true; }, true));
     });
-    editor.replaceChildren(el('section', { className: 'card' }, el('span', { className: 'tag', text: current.rubric_id ? `v${current.version} → новая версия` : 'Новый чек-лист' }), field('Название чек-листа', name)), list,
+    const applyLink = el('a', { href: '#/conversations', className: 'back-link', text: 'Перейти к диалогам и применить выбранную версию' });
+    editor.replaceChildren(applyLink, el('section', { className: 'card' }, el('span', { className: 'tag', text: current.rubric_id ? `v${current.version} → новая версия` : 'Новый чек-лист' }), field('Название чек-листа', name)), list,
       button('+ Добавить критерий', () => { current = { ...current, ...read() }; current.criteria.push({ id: `criterion-${Date.now()}`, name: '', section: '', description: '', instructions: '', weight: 10, type: 'binary', allowed_values: ['yes', 'no'], allows_na: false, na_rule: '' }); draw(); validate(); }, true), errors, save, confirmation);
     editor.oninput = validate; editor.onchange = validate; draw();
   }
-  const load = async () => { const [id, version] = picker.value.split('|'); if (id) edit(await api.rubric(id, version)); else edit({ name: '', criteria: [] }); };
-  picker.addEventListener('change', () => perform(state, 'Загрузка…', async () => { await load(); state.textContent = ''; }));
+  const load = async () => { const [id, version] = picker.value.split('|'); if (id) ctx.rubric = picker.value; if (id) edit(await api.rubric(id, version)); else edit({ name: '', criteria: [] }); };
+  picker.addEventListener('change', () => perform(state, 'Загрузка…', async () => { await load(); state.textContent = ''; }, picker));
   await load(); return page;
 }

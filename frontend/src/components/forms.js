@@ -38,3 +38,13 @@ export function rubricSelection(control) {
   const [rubric_id, version] = control.value.split('|');
   return { rubric_id, rubric_version: Number(version) };
 }
+export function paidConfirmation(container, description, confirmLabel, action) {
+  container.hidden = false;
+  const cancel = button('Отмена', () => { container.hidden = true; }, true);
+  const submit = button(confirmLabel, async () => {
+    submit.disabled = true; cancel.disabled = true;
+    try { await action(submit); }
+    finally { submit.disabled = false; cancel.disabled = false; }
+  });
+  container.replaceChildren(el('p', { text: description }), submit, cancel);
+}

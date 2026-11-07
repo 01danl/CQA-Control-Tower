@@ -41,14 +41,22 @@ export function mountApp(root, api, windowObject = window) {
     const route = windowObject.location.hash || '#/conversations';
     root.querySelectorAll('.nav-link').forEach((n) => { if (route.startsWith(n.getAttribute('href'))) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
     try {
-      let view; const parts = route.slice(2).split('/').map(decodeURIComponent);
+      const [path, query] = route.slice(2).split('?');
+      const params = new URLSearchParams(query);
+      let view; const parts = path.split('/').map(decodeURIComponent);
       if (parts[0] === 'conversations' && parts.length === 1) view = await conversationsPage(api, pageCtx);
       else if (parts[0] === 'conversations' && parts.length === 3) view = await reviewPage(api, pageCtx, { group: parts[1], id: parts[2] });
       else if (parts[0] === 'evaluations' && parts[1]) view = await reviewPage(api, pageCtx, { evaluationId: parts[1] });
       else if (parts[0] === 'rubrics') view = await rubricsPage(api, pageCtx);
       else if (parts[0] === 'appeals') view = await appealsPage(api, pageCtx);
       else view = el('section', { className: 'card', text: 'Страница не найдена' }, el('a', { href: '#/conversations', text: 'Все диалоги' }));
-      if (active()) { content.replaceChildren(view); if (ctx.flash) { content.prepend(el('p', { className: 'success', role: 'status', text: ctx.flash })); ctx.flash = ''; } }
+      if (active()) { content.replaceChildren(view);
+        const criterion = [...content.querySelectorAll('.criterion')].find((n) => n.dataset.criterionId === params.get('criterion'));
+        if (criterion) {
+          criterion.scrollIntoView?.({ block: 'center' }); criterion.focus();
+          if (params.has('message')) [...criterion.querySelectorAll('.evidence')].find((n) => n.dataset.messageIndex === params.get('message'))?.click();
+        }
+        if (ctx.flash) { content.prepend(el('p', { className: 'success', role: 'status', text: ctx.flash })); ctx.flash = ''; } }
     } catch (error) { if (active()) content.replaceChildren(errorState(error, render)); }
     finally { if (active()) content.setAttribute('aria-busy', 'false'); }
   }

@@ -71,6 +71,13 @@ test('real rubric UI validates, creates, replaces, adds, orders and saves immuta
   await page.reload();
   await page.getByLabel('Чек-лист', { exact: true }).selectOption(`${saved.rubric_id}|2`);
   await expect(page.locator('.editor-row').first().getByLabel('Название', { exact: true })).toHaveValue('Clarity / Түсініктілік');
+  await page.getByRole('link', { name: 'Перейти к диалогам и применить выбранную версию' }).click();
+  await expect(page.getByLabel('Чек-лист для оценки', { exact: true })).toHaveValue(`${saved.rubric_id}|2`);
+  const conversations = await json(await request.get(`${base}/conversations?group_id=DEV&limit=1`));
+  if (conversations.items.length) {
+    await page.getByRole('link', { name: conversations.items[0].conversation_id, exact: true }).click();
+    await expect(page.getByLabel('Применить чек-лист', { exact: true })).toHaveValue(`${saved.rubric_id}|2`);
+  }
 });
 
 test('network failure recovers to actual backend without mock fallback', async ({ page }) => {
@@ -102,8 +109,9 @@ test('paid live AI: multilingual filtering → evaluation → evidence → appea
   await page.getByLabel('Применить чек-лист').selectOption('default|1');
   const runReceipt = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/evaluations'));
   await page.getByRole('button', { name: 'Оценить диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Подтвердить платную оценку', exact: true }).click();
   const receipt = await json(await runReceipt);
-  await expect(page.locator('.score')).toBeVisible({ timeout: 150000 });
+  await expect(page.locator(`[data-evaluation-id="${receipt.evaluation_id}"] .score`)).toBeVisible({ timeout: 150000 });
   const original = await json(await request.get(`${base}/evaluations/${receipt.evaluation_id}`));
   expect(original.status).toBe('completed'); expect(original.usage?.model).toBeTruthy();
   expect(original.results).toHaveLength(original.rubric_snapshot.criteria.filter((c) => c.enabled !== false).length);
@@ -143,8 +151,9 @@ test('paid live AI: multilingual filtering → evaluation → evidence → appea
   await page.getByLabel('Применить чек-лист').selectOption(`${created.rubric_id}|2`);
   const nextReceipt = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/evaluations'));
   await page.getByRole('button', { name: 'Оценить диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Подтвердить платную оценку', exact: true }).click();
   const nextId = (await json(await nextReceipt)).evaluation_id;
-  await expect(page.locator('.score')).toBeVisible({ timeout: 150000 });
+  await expect(page.locator(`[data-evaluation-id="${nextId}"] .score`)).toBeVisible({ timeout: 150000 });
   const updated = await json(await request.get(`${base}/evaluations/${nextId}`));
   expect(updated.rubric_version).toBe(2); expect(updated.results.some((r) => r.criterion_id === 'next-step')).toBeTruthy();
   expect((await json(await request.get(`${base}/evaluations/${receipt.evaluation_id}`))).rubric_snapshot).toEqual(original.rubric_snapshot);
