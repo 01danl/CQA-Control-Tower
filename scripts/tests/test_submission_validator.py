@@ -88,7 +88,7 @@ class ValidatorTests(unittest.TestCase):
         for action, code in [
             (lambda r: r["criteria"].pop(), "CRITERION_COUNT_INVALID"),
             (lambda r: r["criteria"][0].update(criterion_id="C99"), "CRITERION_ID_INVALID"),
-            (lambda r: r["criteria"][0].update(criterion_id="C02"), "DUPLICATE_CRITERION_ID"),
+            (lambda r: r["criteria"][0].update(criterion_id="discovery"), "DUPLICATE_CRITERION_ID"),
             (lambda r: r.update(status="completed"), "STATUS_INVALID"),
         ]:
             with self.subTest(code=code):
@@ -119,7 +119,7 @@ class ValidatorTests(unittest.TestCase):
                 r = p["results"][0]
                 r["criteria"][index]["value"] = value
                 values_by_id = {c["criterion_id"]: c["value"] for c in r["criteria"]}
-                r["final_score"] = v.independently_score(values_by_id, "boolean")
+                r["score"]["final_score"] = v.independently_score(values_by_id, "boolean")
                 self.assertEqual(v.validate(p, 1, self.fmt)["status"], "PASS")
 
     def test_evidence_rejects_boolean_zero_negative_float_and_out_of_bounds(self):
@@ -140,10 +140,10 @@ class ValidatorTests(unittest.TestCase):
     def test_fraction_score_goldens_na_numeric_half_up_and_critical_independence(self):
         cases = [
             ({}, 100),
-            ({"C03": None}, 100),
-            ({"C03": None, "C01": False}, Decimal("87.50")),
-            ({"C04": 15, "C06": 7}, Decimal("90.50")),
-            ({"C08": True}, 100),
+            ({"identification": None}, 100),
+            ({"identification": None, "contact": False}, Decimal("87.50")),
+            ({"consultation": 15, "dialogue": 7}, Decimal("90.50")),
+            ({"critical": True}, 100),
         ]
         for changes, expected in cases:
             p = copy.deepcopy(self.payload)
@@ -151,39 +151,39 @@ class ValidatorTests(unittest.TestCase):
             for c in r["criteria"]:
                 if c["criterion_id"] in changes:
                     c["value"] = changes[c["criterion_id"]]
-            r["final_score"] = expected
-            r["critical_flag"] = changes.get("C08", False)
+            r["score"]["final_score"] = expected
+            r["score"]["critical_flag"] = changes.get("critical", False)
             self.assertEqual(v.validate(p, 1, self.fmt)["status"], "PASS")
         values = {
-            "C01": False,
-            "C02": False,
-            "C03": None,
-            "C04": 0,
-            "C05": False,
-            "C06": 7,
-            "C07": False,
-            "C08": False,
+            "contact": False,
+            "discovery": False,
+            "identification": None,
+            "consultation": 0,
+            "empathy": False,
+            "dialogue": 7,
+            "closure": False,
+            "critical": False,
         }
         self.assertEqual(v.independently_score(values, "boolean"), Decimal("13.13"))
-        values.update(C02=None, C04=None, C06=0, C07=None)
+        values.update(discovery=None, consultation=None, dialogue=0, closure=None)
         self.assertEqual(v.independently_score(values, "boolean"), 0)
 
     def test_finite_score_range_exact_total_and_flag_types(self):
         for value in (True, None, -1, 101, "100", Decimal("NaN"), Decimal("Infinity")):
             p = copy.deepcopy(self.payload)
-            p["results"][0]["final_score"] = value
+            p["results"][0]["score"]["final_score"] = value
             self.assert_invalid("FINAL_SCORE_INVALID", p)
         p = copy.deepcopy(self.payload)
-        p["results"][0]["final_score"] = 99
+        p["results"][0]["score"]["final_score"] = 99
         self.assert_invalid("FINAL_SCORE_MISMATCH", p)
         for flag in (1, None, True):
             p = copy.deepcopy(self.payload)
-            p["results"][0]["critical_flag"] = flag
+            p["results"][0]["score"]["critical_flag"] = flag
             self.assert_invalid("CRITICAL_FLAG_MISMATCH", p)
         p = copy.deepcopy(self.payload)
         p["results"][0]["criteria"][-1]["value"] = True
-        p["results"][0]["final_score"] = 0
-        p["results"][0]["critical_flag"] = True
+        p["results"][0]["score"]["final_score"] = 0
+        p["results"][0]["score"]["critical_flag"] = True
         self.assert_invalid("FINAL_SCORE_MISMATCH", p)
 
     def test_error_records_empty_safe_and_cannot_claim_clean_or_scored(self):
@@ -192,15 +192,13 @@ class ValidatorTests(unittest.TestCase):
         r.update(
             status="error",
             criteria=[],
-            final_score=None,
-            critical_flag=None,
+            score=None,
             error="Evaluation unavailable after bounded retries.",
         )
         self.assertEqual(v.validate(p, 1, self.fmt)["errors"], 1)
         for changes in (
             {"criteria": self.payload["results"][0]["criteria"]},
-            {"final_score": 0},
-            {"critical_flag": False},
+            {"score": {"final_score": 0, "critical_flag": False}},
             {"error": ""},
             {"error": "Traceback private stack trace"},
         ):
@@ -216,7 +214,7 @@ class ValidatorTests(unittest.TestCase):
             "Bearer " + "X" * 30,
         ):
             p = copy.deepcopy(self.payload)
-            p["results"][0]["criteria"][0]["explanation"] = leaked
+            p["results"][0]["criteria"][0]["rationale"] = leaked
             with self.subTest(), self.assertRaises(v.ValidationError) as error:
                 v.validate(p, 1, self.fmt)
             self.assertNotIn(leaked, str(error.exception))
@@ -224,7 +222,7 @@ class ValidatorTests(unittest.TestCase):
         p["results"][0]["transcript"] = []
         self.assert_invalid("PRIVATE_FIELD", p)
         p = copy.deepcopy(self.payload)
-        p["results"][0]["criteria"][0]["explanation"] = (
+        p["results"][0]["criteria"][0]["rationale"] = (
             "Policy reference https://example.invalid/public-policy"
         )
         self.assertEqual(v.validate(p, 1, self.fmt)["status"], "PASS")
@@ -267,7 +265,7 @@ class ValidatorTests(unittest.TestCase):
 
     def test_cli_nonzero_and_no_sensitive_content_in_stdout_or_stderr(self):
         secret = "sk-" + "Z" * 30
-        self.payload["results"][0]["criteria"][0]["explanation"] = secret
+        self.payload["results"][0]["criteria"][0]["rationale"] = secret
         write(self.path, self.payload)
         result = subprocess.run(
             [
@@ -287,34 +285,26 @@ class ValidatorTests(unittest.TestCase):
         self.assertNotIn(secret, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)["code"], "SECRET_PATTERN")
 
-    def test_object_criteria_yes_no_and_structured_errors_supported_only_by_explicit_profile(self):
-        fmt = copy.deepcopy(self.fmt.__dict__)
-        fmt.update(
-            criteria_container="object",
-            binary_encoding="yes_no",
-            error_style="object",
-            error_critical_value=False,
-        )
-        fmt = v.WireFormat(**fmt)
+    def test_alternate_format_cannot_override_official_schema(self):
+        data = profile()
+        for key, value in (
+            ("criteria_container", "object"),
+            ("binary_encoding", "yes_no"),
+            ("explanation_key", "explanation"),
+            ("model_modes", ["single"]),
+        ):
+            bad = {**data, key: value}
+            write(self.fmt_path, bad)
+            with self.assertRaises(v.ValidationError) as error:
+                v.WireFormat.read(self.fmt_path)
+            self.assertEqual(error.exception.code, "OFFICIAL_PROFILE_MISMATCH")
         p = copy.deepcopy(self.payload)
         r = p["results"][0]
-        r["criteria"] = {
-            c["criterion_id"]: {
-                k: ("yes" if value is True else "no" if value is False else value)
-                for k, value in c.items()
-                if k != "criterion_id"
-            }
-            for c in r["criteria"]
-        }
-        self.assertEqual(v.validate(p, 1, fmt)["status"], "PASS")
-        r.update(
-            status="error",
-            criteria={},
-            final_score=None,
-            critical_flag=False,
-            error={"code": "MODEL_UNAVAILABLE", "message": "Safe provider failure"},
-        )
-        self.assertEqual(v.validate(p, 1, fmt)["errors"], 1)
+        r.update(r.pop("score"))
+        self.assert_invalid("REQUIRED_FIELD_MISSING", p)
+        p = copy.deepcopy(self.payload)
+        p["results"][0]["criteria"][0]["criterion_id"] = "C01"
+        self.assert_invalid("CRITERION_ID_INVALID", p)
 
     def test_all_5184_legal_values_match_separate_decimal_reference(self):
         from decimal import ROUND_HALF_UP, localcontext

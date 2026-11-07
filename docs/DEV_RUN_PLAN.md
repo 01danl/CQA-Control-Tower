@@ -1,4 +1,12 @@
-# Final DEV run — preparation, not execution
+# Final DEV run — historical preparation
+
+**Current continuation:** use [DEV_CONTINUATION_RUNBOOK.md](DEV_CONTINUATION_RUNBOOK.md).
+The old plan below is historical; reliability changes require new hashes/approval.
+
+**Later execution update:** the user approved this original plan. It safely stopped
+after 5 new successes and 1 failed job; DEV now has 6 eligible completions. Backend
+was restored. See [DEV_RUN_RESULTS.md](DEV_RUN_RESULTS.md) for actual costs, failure
+and an unapproved continuation plan. The preparation snapshot below is historical.
 
 Team bda2402 · 2026-11-07 · feature branch `feat/submission-export`.
 **Approval pending. Zero new paid evaluations submitted.** The existing incomplete

@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"),
     )
     llm_model: str | None = "deepseek/deepseek-v4.1-flash"
+    # None preserves the provider default; changes require a new approved run plan.
+    llm_reasoning_effort: Literal["max", "high", "low", "none"] | None = None
+    llm_max_output_tokens: int = Field(default=8192, ge=1024, le=32768)
     llm_input_price_usd_per_1m: Decimal | None = None
     llm_output_price_usd_per_1m: Decimal | None = None
     openai_base_url: str = Field(
@@ -39,6 +43,11 @@ class Settings(BaseSettings):
     batch_concurrency: int = Field(default=2, ge=1, le=8)
     max_pending_evaluations: int = Field(default=1000, ge=1, le=10000)
     worker_poll_seconds: float = Field(default=0.5, gt=0, le=10)
+
+    @field_validator("llm_reasoning_effort", mode="before")
+    @classmethod
+    def blank_effort_preserves_provider_default(cls, value):
+        return None if value == "" else value
 
     @field_validator("llm_model", mode="before")
     @classmethod

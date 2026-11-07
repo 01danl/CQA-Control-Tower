@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Literal
 
 from pydantic import ConfigDict, Field, StrictBool, StrictInt
@@ -40,6 +41,48 @@ class CriterionAnswer(StrictModel):
 class ModelOutput(StrictModel):
     results: list[CriterionAnswer] = Field(max_length=100)
     policy_uncertain: StrictBool
+
+
+def provider_output_schema(rubric: RubricDetail) -> dict:
+    """Stricter wire schema; keep legacy stored evidence readable locally.
+
+    Exact substring matching still requires the transcript-aware runtime validator.
+    Both branches are complete strict objects, rather than unsupported if/then rules.
+    """
+    schema = ModelOutput.model_json_schema()
+    evidence = schema["$defs"]["EvidenceDraft"]
+    support = deepcopy(evidence)
+    support["properties"]["kind"] = {"type": "string", "enum": ["support"]}
+    support["properties"]["quote"]["minLength"] = 1
+    missing = deepcopy(evidence)
+    missing["properties"]["kind"] = {"type": "string", "enum": ["expected_missing"]}
+    missing["properties"]["quote"] = {"type": "string", "enum": [""]}
+    missing["properties"]["checked_span"] = {"$ref": "#/$defs/CheckedSpan"}
+    schema["$defs"]["EvidenceDraft"] = {"anyOf": [support, missing]}
+    ids = [c.id for c in rubric.criteria if c.enabled]
+    schema["$defs"]["CriterionAnswer"]["properties"]["criterion_id"]["enum"] = ids
+    schema["properties"]["results"].update(minItems=len(ids), maxItems=len(ids))
+    return schema
+
+
+class RepairFeedback(list[str]):
+    """Trusted validation issues, with a separately delimited untrusted prior answer."""
+
+    def __init__(self, issues: list[str], previous: ModelOutput, criterion_ids: list[str]):
+        super().__init__(issues)
+        self.previous = previous.model_dump(mode="json")
+        self.criterion_ids = criterion_ids
+
+    def validate_unchanged(self, output: ModelOutput) -> None:
+        original = {r["criterion_id"]: r for r in self.previous["results"]}
+        if output.policy_uncertain != self.previous["policy_uncertain"] or any(
+            r.model_dump(mode="json") != original.get(r.criterion_id)
+            for r in output.results
+            if r.criterion_id not in self.criterion_ids
+        ):
+            raise EvidenceError(
+                ["repair: unflagged criteria and policy_uncertain must stay unchanged"]
+            )
 
 
 class EvidenceError(ValueError):

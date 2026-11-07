@@ -16,7 +16,7 @@ from app.contracts import ConversationDetail, RubricDetail
 from app.dataset_client import DatasetClient
 from app.db import make_engine, make_session_factory
 from app.errors import ServiceError
-from app.evidence import ModelOutput
+from app.evidence import provider_output_schema
 from app.privacy import silence_transport_logs
 from app.providers import SYSTEM_PROMPT
 from app.repository import conversation_detail, import_dataset
@@ -71,14 +71,17 @@ def planning_reserve(
     text += json.dumps(
         conversation.model_dump(mode="json", exclude={"audio_url"}), ensure_ascii=False
     )
-    text += json.dumps(ModelOutput.model_json_schema())
+    text += json.dumps(provider_output_schema(rubric))
     input_reserve = len(text.encode("utf-8")) * 2 + 4096
+    # A repair can include the previous visible JSON as untrusted input.
+    # Still a planning heuristic, not a tokenizer or provider-enforced cap.
+    input_reserve += settings.llm_max_output_tokens * 4
     attempts = 2 * (settings.http_retries + 1)  # one repair, bounded transport retries
     return (
         attempts
         * (
             input_reserve * settings.llm_input_price_usd_per_1m
-            + 8192 * settings.llm_output_price_usd_per_1m
+            + settings.llm_max_output_tokens * settings.llm_output_price_usd_per_1m
         )
         / 1000000
     )

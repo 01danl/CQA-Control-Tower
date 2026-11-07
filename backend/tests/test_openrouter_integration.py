@@ -13,7 +13,7 @@ from app.config import Settings
 from app.dataset_client import DatasetClient, parse_dataset
 from app.errors import ServiceError
 from app.evaluation import usage_summary
-from app.evidence import ModelOutput
+from app.evidence import provider_output_schema
 from app.providers import OpenAIProvider, ProviderReply
 from app.repository import conversation_detail, get_conversation, import_dataset
 from app.rubrics import get_rubric
@@ -72,7 +72,7 @@ def test_openrouter_request_preserves_schema_and_observed_cost(session, settings
         rubric, conversation
     )
     assert calls[0]["provider"] == {"require_parameters": True}
-    assert calls[0]["response_format"]["json_schema"]["schema"] == ModelOutput.model_json_schema()
+    assert calls[0]["response_format"]["json_schema"]["schema"] == provider_output_schema(rubric)
     assert calls[0]["max_tokens"] == 8192 and "max_completion_tokens" not in calls[0]
     assert calls[0]["usage"] == {"include": True}
     assert reply.reported_cost_usd == Decimal(".000041")

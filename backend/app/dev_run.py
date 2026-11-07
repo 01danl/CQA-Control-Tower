@@ -47,7 +47,11 @@ RUNTIME_KEYS = (
     "retry_backoff_seconds",
     "max_retry_delay_seconds",
     "batch_concurrency",
+    "llm_reasoning_effort",
+    "llm_max_output_tokens",
 )
+ISOLATED_FAILURES = {"INVALID_MODEL_OUTPUT", "MODEL_OUTPUT_LIMIT", "MODEL_REFUSAL"}
+MAX_CONSECUTIVE_FAILURES = 3
 
 
 class RunError(ValueError):
@@ -104,7 +108,14 @@ def verify_lineage(session, hashes):
 def ledger(session, hashes):
     spent = Decimal(0)
     unknown, pending = [], []
-    ids = {e.evaluation_id for e in reservations(session, hashes)}
+    reserved_ids = {e.evaluation_id for e in reservations(session, hashes)}
+    # Include the successful smoke run and any recorded out-of-plan model charges.
+    # Provider key quota additionally covers spend not recorded in this database.
+    ids = reserved_ids | {
+        e.evaluation_id
+        for e in session.scalars(select(m.Evaluation))
+        if (e.usage or {}).get("model") == MODEL
+    }
     for eid in ids:
         item = session.get(m.Evaluation, eid)
         if item is None:
@@ -131,7 +142,8 @@ def ledger(session, hashes):
         "known_spend_usd": str(spent),
         "unknown_charge_ids": sorted(unknown),
         "pending_ids": sorted(pending),
-        "reserved_jobs": len(ids),
+        "reserved_jobs": len(reserved_ids),
+        "recorded_jobs": len(ids),
     }
 
 
@@ -173,9 +185,15 @@ def fetch_quota(settings):
     return quota
 
 
-def verify(plan, settings):
+def verify_integrity(plan):
     if digest({k: v for k, v in plan.items() if k != "plan_hash"}) != plan["plan_hash"]:
         raise RunError("PLAN_TAMPERED")
+    if plan.get("group") != "DEV" or plan.get("model") != MODEL or plan.get("team") != "bda2402":
+        raise RunError("INVALID_PLAN_IDENTITY")
+
+
+def verify(plan, settings):
+    verify_integrity(plan)
     if (
         plan["pipeline_hash"] != pipeline_hash()
         or plan["runner_hash"] != runner_hash()
@@ -193,7 +211,7 @@ def verify_sources(session, plan):
         raise RunError("RUBRIC_CHANGED_REPLAN")
 
 
-def prepare(session, settings, prices, parent=None, quota=None):
+def prepare(session, settings, prices, parent=None, quota=None, only_conversations=None):
     if (
         settings.llm_model != MODEL
         or settings.openai_base_url.rstrip("/") != "https://openrouter.ai/api/v1"
@@ -210,7 +228,9 @@ def prepare(session, settings, prices, parent=None, quota=None):
     rubric = get_rubric(session, "default", 1)
     lineage = []
     if parent is not None:
-        verify(parent, settings)
+        # Archived plans must retain their charges after a reviewed code/config fix.
+        # Only the NEW plan must match the current implementation and approval.
+        verify_integrity(parent)
         verify_sources(session, parent)
         lineage = parent["lineage"] + [parent["plan_hash"]]
     verify_lineage(session, lineage)
@@ -225,10 +245,20 @@ def prepare(session, settings, prices, parent=None, quota=None):
     )
     cases = []
     durations = []
+    selected_ids = set(only_conversations) if only_conversations is not None else None
+    if selected_ids is not None and (
+        not selected_ids
+        or len(selected_ids) != len(only_conversations)
+        or not selected_ids <= {s.conversation_id for s in sources}
+    ):
+        raise RunError("INVALID_EXPLICIT_PILOT_IDS")
     for index, source in enumerate(sources, 1):
         old = completed(session, source, rubric)
+        selected = selected_ids is None or source.conversation_id in selected_ids
         reserve = (
-            Decimal(0) if old else planning_reserve(rates, rubric, conversation_detail(source))
+            Decimal(0)
+            if old or not selected
+            else planning_reserve(rates, rubric, conversation_detail(source))
         )
         cases.append(
             {
@@ -236,11 +266,19 @@ def prepare(session, settings, prices, parent=None, quota=None):
                 "conversation_id": source.conversation_id,
                 "source_hash": snapshot(source),
                 "reuse_id": old.evaluation_id if old else None,
+                "selected": selected,
                 "reserve_usd": str(reserve),
             }
         )
-        if old and old.duration_ms is not None:
-            durations.append(old.duration_ms)
+    # Include failed jobs and their repairs in the observed runtime baseline.
+    durations = list(
+        session.scalars(
+            select(m.Evaluation.duration_ms)
+            .where(m.Evaluation.group_id == "DEV", m.Evaluation.duration_ms.is_not(None))
+            .order_by(m.Evaluation.created_at.desc())
+            .limit(6)
+        )
+    )
     plan = {
         "created_at": datetime.now(UTC).isoformat(),
         "group": "DEV",
@@ -258,6 +296,7 @@ def prepare(session, settings, prices, parent=None, quota=None):
         "planning_reserve_usd": str(sum(Decimal(r["reserve_usd"]) for r in cases)),
         "prior_known_spend_usd": charges["known_spend_usd"],
         "coordinator_concurrency": 1,
+        "max_consecutive_isolated_failures": MAX_CONSECUTIVE_FAILURES,
         "duration_samples_ms": durations,
         "approval": "REQUIRED; estimate is not a provider-enforced hard budget cap",
     }
@@ -287,13 +326,21 @@ def summary(session, plan):
                 }
             )
     durations = plan["duration_samples_ms"]
-    new_count = sum(r["reuse_id"] is None for r in plan["cases"])
+    new_count = sum(r["reuse_id"] is None and r.get("selected", True) for r in plan["cases"])
+    source_ids = [r["conversation_id"] for r in plan["cases"]]
+    remaining_ids = {
+        cid for cid, row in zip(source_ids, rows, strict=True) if row["status"] == "error"
+    }
     return {
         "plan_hash": plan["plan_hash"],
         "model": MODEL,
         "source_records": 65,
-        "initial_reuse": 65 - new_count,
+        "initial_reuse": sum(r["reuse_id"] is not None for r in plan["cases"]),
         "planned_new": new_count,
+        "selected_remaining": sum(
+            r.get("selected", True) and r["conversation_id"] in remaining_ids for r in plan["cases"]
+        ),
+        "submission_ready": counts["error"] == 0,
         "verified_ok": counts["ok"],
         "remaining": counts["error"],
         "planning_reserve_usd": plan["planning_reserve_usd"],
@@ -305,7 +352,7 @@ def summary(session, plan):
         if durations
         else None,
         "time_estimate_sample_n": len(durations),
-        "time_estimate_caveat": "Single-coordinator extrapolation; excludes retries, rate limits and manual stops",
+        "time_estimate_caveat": "Last six measured jobs include observed repairs/failures; excludes future rate limits, longer transcripts and manual stops",
         "ledger": ledger(session, plan["lineage"] + [plan["plan_hash"]]),
         "failures": failures,
     }
@@ -349,11 +396,14 @@ def execute(factory, plan, settings, approval, budget, workers_stopped=False, pr
         raise RunError("PROVIDER_KEY_UNAVAILABLE")
     provider = provider or OpenAIProvider(settings)
     hashes = plan["lineage"] + [plan["plan_hash"]]
+    consecutive_failures = 0
     with coordinator_lock(factory):
         with factory() as session:
             verify_lineage(session, hashes)
             verify_sources(session, plan)
         for index, row in enumerate(plan["cases"]):
+            if not row.get("selected", True):
+                continue
             with factory() as session:
                 queue_lock(session)
                 source = session.get(m.Conversation, ("DEV", row["conversation_id"]))
@@ -370,6 +420,7 @@ def execute(factory, plan, settings, approval, budget, workers_stopped=False, pr
                     None,
                 )
                 if old and (event is None or old.evaluation_id == event.evaluation_id):
+                    consecutive_failures = 0
                     continue
                 if row["reuse_id"] and old is None:
                     raise RunError("PREVIOUS_COMPLETION_NO_LONGER_VALID")
@@ -386,6 +437,13 @@ def execute(factory, plan, settings, approval, budget, workers_stopped=False, pr
                     raise RunError("PROVIDER_REMAINING_CREDIT_BELOW_PLANNING_RESERVE")
                 if event is not None:
                     item = session.get(m.Evaluation, event.evaluation_id)
+                    if item is not None and item.status == "failed":
+                        if (item.error or {}).get("code") not in ISOLATED_FAILURES:
+                            raise RunError("INFRASTRUCTURE_FAILURE_STOP_AND_INSPECT")
+                        consecutive_failures += 1
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            raise RunError("SYSTEMATIC_EVALUATION_FAILURES_STOP")
+                        continue  # Same plan never bills a terminal failed receipt twice.
                     if item is None or item.status != "queued":
                         raise RunError(
                             "RESERVED_JOB_FAILED_RUNNING_OR_INVALID_INSPECT_DO_NOT_RESUBMIT"
@@ -442,14 +500,22 @@ def execute(factory, plan, settings, approval, budget, workers_stopped=False, pr
                 charges = ledger(session, hashes)
                 item = session.get(m.Evaluation, eid)
                 if (
-                    item.status != "completed"
-                    or charges["unknown_charge_ids"]
+                    charges["unknown_charge_ids"]
+                    or charges["pending_ids"]
                     or Decimal(charges["known_spend_usd"]) > budget
                 ):
                     raise RunError("JOB_FAILED_OR_SPEND_UNCERTAIN_STOP_AND_INSPECT")
+                if item.status == "failed" and (item.error or {}).get("code") in ISOLATED_FAILURES:
+                    consecutive_failures += 1
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        raise RunError("SYSTEMATIC_EVALUATION_FAILURES_STOP")
+                elif item.status != "completed":
+                    raise RunError("INFRASTRUCTURE_FAILURE_STOP_AND_INSPECT")
+                else:
+                    consecutive_failures = 0
         with factory() as session:
             result = summary(session, plan)
-            if result["ledger"]["unknown_charge_ids"] or result["remaining"]:
+            if result["ledger"]["unknown_charge_ids"]:
                 raise RunError("FINAL_EXPORT_OR_SPEND_NOT_VERIFIED")
             return result
 
@@ -464,6 +530,11 @@ def main():
     )
     parser.add_argument("--prices-file", type=Path)
     parser.add_argument("--retry-from", type=Path)
+    parser.add_argument(
+        "--only-conversation",
+        action="append",
+        help="Prepare an explicit limited pilot; other missing sources are not billed",
+    )
     parser.add_argument("--approve-plan")
     parser.add_argument("--max-usd", type=Decimal)
     parser.add_argument("--workers-stopped", action="store_true")
@@ -475,6 +546,10 @@ def main():
             raise RunError("PLAN_MUST_BE_IN_IGNORED_PRIVATE_DIRECTORY")
         if args.command == "run" and (not args.approve_plan or args.max_usd is None):
             raise RunError("EXPLICIT_APPROVAL_REQUIRED_BEFORE_ANY_PAID_REQUEST")
+        if args.command != "prepare" and (
+            args.only_conversation or args.retry_from or args.prices_file
+        ):
+            raise RunError("SCOPE_AND_LINEAGE_FLAGS_ARE_PREPARE_ONLY")
         settings = Settings()
         engine = make_engine(settings)
         factory = make_session_factory(engine)
@@ -487,6 +562,7 @@ def main():
                     prices,
                     load(args.retry_from) if args.retry_from else None,
                     fetch_quota(settings),
+                    args.only_conversation,
                 )
                 result = summary(session, plan)
             args.plan.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -503,8 +579,18 @@ def main():
                 with factory() as session:
                     verify_sources(session, plan)
                     result = summary(session, plan)
-        print(json.dumps({"status": "PASS", "operation": args.command, **result}, indent=2))
-        return 0
+        incomplete_run = args.command == "run" and result["selected_remaining"] > 0
+        print(
+            json.dumps(
+                {
+                    "status": "INCOMPLETE" if incomplete_run else "PASS",
+                    "operation": args.command,
+                    **result,
+                },
+                indent=2,
+            )
+        )
+        return 2 if incomplete_run else 0
     except Exception as error:
         print(
             json.dumps(

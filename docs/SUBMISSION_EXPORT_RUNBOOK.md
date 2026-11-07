@@ -1,9 +1,32 @@
 # Organizer JSON submission runbook
 
+**Current execution state:** [DEV_RUN_RESULTS.md](DEV_RUN_RESULTS.md) records the
+subsequent authorized run: 6 total ok / 59 error after a safe stop. The earlier
+1-ok/64-error artifact/hash in the implementation-verification section is historical.
+
 2026-11-07 · team **bda2402** · work branch `feat/submission-export`.
 Source: the mandatory submission specification supplied in this task, existing
 product checklist and frozen API. No external schema URL/file was provided, so no
 additional organizer fields or rules are invented. The app/API/scorer are retained.
+
+## Current reliability and validator update
+
+The official independent validator now matches this export format; see
+[LLM_RELIABILITY_FIX_REPORT.md](LLM_RELIABILITY_FIX_REPORT.md). Current DEV is
+65 IDs / 6 genuine ok / 59 honest errors; both independent and DB checks pass.
+For paid missing-only DEV execution/recovery use
+[DEV_CONTINUATION_RUNBOOK.md](DEV_CONTINUATION_RUNBOOK.md), not the batch API.
+
+From root, verify original predictions, actual IDs, bounds and independent scores:
+
+```sh
+backend/.venv/bin/python scripts/verify_submission_db.py \
+  --group DEV --stage dev --submission results/dev/results.json
+python3 scripts/check_submission_delivery.py
+```
+
+PROD absence is permitted until control release. At final delivery use --final;
+reference IDs must come from actual organizer sources, never from output itself.
 
 ## Output contract
 
@@ -161,32 +184,14 @@ rates. The reserve includes one structured-output repair and bounded transport
 attempts. It is not a provider-enforced spending cap or invoice guarantee. Report
 the exact group/job count/estimate and obtain explicit budget approval first.
 
-## 3. Evaluate all DEV — PAID, NOT executed in this task
+## 3. Evaluate remaining DEV — separate paid approval required
 
-**For the prepared final DEV run, use [DEV_RUN_PLAN.md](DEV_RUN_PLAN.md) instead.**
-It reuses the verified individual completion and plans 64 new jobs. The generic
-group-wide API command below would create 65 new jobs on this database and is not
-the command covered by the missing-only plan approval.
-
-Only after explicit approval of 65 DEV jobs and the reported budget, run from root:
-
-```sh
-curl --fail --silent --show-error \
-  -H 'Content-Type: application/json' \
-  --data '{"group_id":"DEV","rubric_id":"default","rubric_version":1}' \
-  http://127.0.0.1:8000/api/v1/batches
-```
-
-Save the returned batch_id and poll the existing job, not another POST:
-
-```sh
-curl --fail --silent --show-error \
-  "http://127.0.0.1:8000/api/v1/batches/${CQA_SUBMISSION_BATCH_ID:?set the returned batch ID}"
-```
-
-Wait for pending=0 and inspect completed/failed counts. Do not restart backend
-mid-run or silently retry after an ambiguous response. Inspect batch/history and
-known spend before any separately approved retry. Preserve failed observations.
+Use [DEV_CONTINUATION_RUNBOOK.md](DEV_CONTINUATION_RUNBOOK.md). It reuses all six
+eligible completions, limits an initial pilot to four explicit sources, preserves
+historical spend and prepares separately approved child plans for failed/missing
+records. The old 64-new and retry-1 plans are historical and stale after code fixes.
+Do not call POST /batches for this budget-approved missing-only workflow: it can
+create group-wide billable work and does not implement the coordinator's ledger.
 
 ## 4. Export DEV
 

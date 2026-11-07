@@ -2,7 +2,7 @@
 """SIMULATION ONLY: exercise final gates in a self-deleting temporary directory.
 
 No Git writes, network, exporter invocation, model calls, or repository results files.
-This deliberately uses a synthetic test wire profile, not organizer compatibility proof.
+This uses synthetic test records under the official wire profile, not genuine AI results.
 """
 
 import json
@@ -43,7 +43,8 @@ def main():
             {
                 "status": "SIMULATION_PASS",
                 "official_submission": False,
-                "organizer_format_confirmed": False,
+                "wire_profile_confirmed": True,
+                "official_results_verified": False,
                 "network_calls": 0,
                 "paid_calls": 0,
                 "git_writes": 0,

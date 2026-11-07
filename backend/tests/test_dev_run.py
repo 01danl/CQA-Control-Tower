@@ -28,7 +28,14 @@ class SyntheticProvider(TestProvider):
 @pytest.fixture
 def prepared(session, engine, settings, monkeypatch):
     seed(session)
-    job(session, engine, settings)
+    historical = job(session, engine, settings)
+    historical.usage = {
+        **historical.usage,
+        "usage_complete": True,
+        "cost_source": "provider_reported",
+        "provider_cost_usd": 0.001,
+    }
+    session.commit()
     settings.llm_model = run.MODEL
     settings.openai_base_url = "https://openrouter.ai/api/v1"
     settings.openai_api_key = SecretStr("synthetic-key")
@@ -96,7 +103,7 @@ def test_full_missing_only_execution_is_idempotent_and_accounts_cost(session, pr
     result = execute(prepared, provider)
     assert len(provider.calls) == 64
     assert result["verified_ok"] == 65 and result["remaining"] == 0
-    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".064")
+    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".065")
     execute(prepared, provider)
     assert len(provider.calls) == 64  # A repeated command never creates/bills a second run.
     session.expire_all()
@@ -148,17 +155,17 @@ def test_known_failed_job_needs_explicit_child_plan_and_retains_prior_charges(se
     failed = SyntheticProvider(mutate=lambda *_: {"invalid": True})
     with pytest.raises(run.RunError):
         execute(prepared, failed)
-    assert len(failed.calls) == 2  # One job with one schema repair, not two jobs.
+    assert len(failed.calls) == 6  # One job with one schema repair, not two jobs.
     parent, factory, settings = prepared
     session.expire_all()
     child = run.prepare(session, settings, parent["prices"], parent=parent)
-    assert child["prior_known_spend_usd"] == ".002" or Decimal(
+    assert child["prior_known_spend_usd"] == ".007" or Decimal(
         child["prior_known_spend_usd"]
-    ) == Decimal(".002")
+    ) == Decimal(".007")
     provider = SyntheticProvider()
     result = execute((child, factory, settings), provider)
     assert len(provider.calls) == 64 and result["remaining"] == 0
-    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".066")
+    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".071")
 
 
 def test_already_prepared_other_plan_cannot_hide_new_unknown_spend(session, prepared):
@@ -217,3 +224,122 @@ def test_cli_requires_approval_before_even_reading_settings(monkeypatch, capsys)
     )
     assert run.main() == 2
     assert "EXPLICIT_APPROVAL_REQUIRED" in capsys.readouterr().out
+
+
+def test_isolated_known_failure_continues_and_same_plan_does_not_rebill(session, prepared):
+    # Two invalid generations for ONE source, then ordinary valid synthetic replies.
+    provider = SyntheticProvider(mutate=lambda output, n: {} if n <= 2 else output)
+    result = execute(prepared, provider)
+    assert len(provider.calls) == 65  # 2 for failed source, 63 successful sources.
+    assert result["verified_ok"] == 64 and result["selected_remaining"] == 1
+    assert not result["submission_ready"]
+    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".066")
+    execute(prepared, provider)
+    assert len(provider.calls) == 65
+    parent, factory, settings = prepared
+    session.expire_all()
+    child = run.prepare(session, settings, parent["prices"], parent=parent)
+    assert sum(r["reuse_id"] is None for r in child["cases"]) == 1
+    retry = SyntheticProvider()
+    result = execute((child, factory, settings), retry)
+    assert len(retry.calls) == 1 and result["submission_ready"]
+    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".067")
+
+
+def test_archived_plan_can_be_replanned_after_code_fix_but_not_executed(prepared, session):
+    plan, _, settings = prepared
+    archive = deepcopy(plan)
+    archive["pipeline_hash"] = "historical-version"
+    archive["runtime"] = {"llm_model": run.MODEL}
+    archive["plan_hash"] = run.digest({k: v for k, v in archive.items() if k != "plan_hash"})
+    with pytest.raises(run.RunError, match="CODE_OR_SETTINGS"):
+        run.verify(archive, settings)
+    fresh = run.prepare(session, settings, plan["prices"], parent=archive)
+    assert fresh["lineage"] == [archive["plan_hash"]]
+    assert fresh["pipeline_hash"] == run.pipeline_hash()
+    archive["team"] = "tampered"
+    with pytest.raises(run.RunError, match="TAMPERED"):
+        run.prepare(session, settings, plan["prices"], parent=archive)
+
+
+def test_explicit_pilot_bills_only_selected_missing_sources_and_includes_prior_cost(
+    session, prepared
+):
+    plan, factory, settings = prepared
+    ids = [r["conversation_id"] for r in plan["cases"][1:4]]
+    pilot = run.prepare(session, settings, plan["prices"], only_conversations=ids)
+    result = execute((pilot, factory, settings), SyntheticProvider())
+    assert result["planned_new"] == 3 and result["selected_remaining"] == 0
+    assert result["remaining"] == 61
+    assert Decimal(result["ledger"]["known_spend_usd"]) == Decimal(".004")
+    assert result["ledger"]["reserved_jobs"] == 3
+
+
+def test_measured_infrastructure_failure_stops_even_when_charge_is_known(prepared):
+    from app.providers import ProviderFailure, ProviderReply
+
+    class InfrastructureProvider:
+        calls = 0
+
+        def generate(self, *_args):
+            self.calls += 1
+            raise ProviderFailure(
+                502,
+                "MODEL_UNAVAILABLE",
+                "Safe infrastructure failure",
+                reply=ProviderReply({}, run.MODEL, 100, 10, 2, reported_cost_usd=Decimal(".001")),
+            )
+
+    provider = InfrastructureProvider()
+    with pytest.raises(run.RunError, match="INFRASTRUCTURE"):
+        execute(prepared, provider)
+    assert provider.calls == 1
+
+
+def test_running_receipt_is_not_automatically_replayed(session, prepared, monkeypatch):
+    plan, factory, settings = prepared
+
+    def crash(factory, eid, *_args):
+        with factory() as s:
+            item = s.get(m.Evaluation, eid)
+            item.status = "running"
+            s.commit()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run, "run_evaluation", crash)
+    with pytest.raises(KeyboardInterrupt):
+        execute(prepared, SyntheticProvider())
+    provider = SyntheticProvider()
+    with pytest.raises(run.RunError, match="RESERVED_JOB_FAILED_RUNNING"):
+        execute(prepared, provider)
+    assert not provider.calls
+    with pytest.raises(run.RunError, match="ACTIVE_JOBS"):
+        run.prepare(session, settings, plan["prices"], parent=plan)
+
+
+def test_prior_out_of_plan_spend_cannot_be_hidden_from_three_dollar_ceiling(session, prepared):
+    plan, _, settings = prepared
+    old = session.scalar(select(m.Evaluation))
+    old.usage = {**old.usage, "provider_cost_usd": 2.99}
+    session.commit()
+    with pytest.raises(run.RunError, match="EXCEEDS_THREE"):
+        run.prepare(session, settings, plan["prices"])
+
+
+def test_run_cannot_silently_ignore_pilot_scope_flags(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "dev_run",
+            "run",
+            "--approve-plan",
+            "synthetic",
+            "--max-usd",
+            "3",
+            "--only-conversation",
+            "synthetic-1",
+        ],
+    )
+    monkeypatch.setattr(run, "Settings", lambda: pytest.fail("Refuse before configuration/network"))
+    assert run.main() == 2
+    assert "SCOPE_AND_LINEAGE_FLAGS_ARE_PREPARE_ONLY" in capsys.readouterr().out

@@ -1,0 +1,1096 @@
+{
+  "schema_version": "1.0",
+  "team_name": "bda2402",
+  "model": {
+    "mode": "external_api",
+    "name": "deepseek/deepseek-v4.1-flash"
+  },
+  "results": [
+    {
+      "conversation_id": "p1-ru-001",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "Первая реплика оператора (индекс 9) содержит приветствие на языке клиента (русский) и самопрезентацию: «Здравствуйте! Меня зовут Алина.»",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": null,
+          "rationale": "na_rule: «Enough details were available from the outset». Клиент сразу ясно сформулировал потребность (не находит тариф в приложении, сейчас с ноутбука, отчёт качать не хочет), поэтому оператору было достаточно данных для ответа без дополнительных уточняющих вопросов.",
+          "evidence_turns": [
+            1,
+            5
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": null,
+          "rationale": "na_rule: «The request did not require identity verification, e.g. general pricing». Запрос касался навигации по интерфейсу (где в веб-версии посмотреть название тарифа); персональные/счётные данные не раскрывались, защищённых действий оператор не выполнял.",
+          "evidence_turns": [
+            1,
+            10
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 20,
+          "rationale": "Оператор дал конкретный путь к решению без необходимости скачивать отчёт: вкладка «Кабинет» в веб-версии, название тарифа под ФИО. Клиент подтвердил, что нашёл информацию («Нашла, спасибо»), т.е. материальный вопрос полностью решён.",
+          "evidence_turns": [
+            10,
+            11
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Оператор вежлив («Здравствуйте!», «Пожалуйста. Хорошего вечера!») и снял выраженное неудобство клиента (нежелание скачивать отчёт), предложив маршрут в веб-версии, не требующий скачивания файла.",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Реплики оператора связные, грамотные и по делу, дают однозначное действие; клиенту не пришлось переспрашивать. Ожидание перед подключением оператора было обозначено в чате, дополнительных проблем в подаче/порядке ответов нет.",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": false,
+          "rationale": "Прощание есть («Хорошего вечера!»), но отсутствует резюме решения или предложение дальнейшей помощи — критерий требует и того, и другого. Оператор имел возможность закрыть диалог после подтверждения клиента (индекс 10), но ограничился только прощанием.",
+          "evidence_turns": [
+            12
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "В репликах оператора нет оскорблений клиента, продажи платных услуг вне компании и раскрытия конфиденциальных данных; оператор лишь подсказал навигацию по интерфейсу.",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 92.31,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-002",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "В первом ответе оператор поздоровался на русском языке и представился по имени.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "Оператор уточнил, где клиент сравнивал тарифы, а затем попросил указать страницу и дату просмотра каждого названия.",
+          "evidence_turns": [
+            10,
+            15
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": true,
+          "rationale": "Оператор не раскрывал данные счёта и прямо указал, что для проверки счёта потребуется идентификация.",
+          "evidence_turns": [
+            12,
+            15
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 20,
+          "rationale": "Оператор объяснил возможную разницу дат, не стал раскрывать данные без идентификации и дал понятный следующий шаг: сверить даты, описать страницу и дату, при проверке счёта пройти идентификацию. Корректность тарифной логики зависит от внешней политики, поэтому нужна проверка.",
+          "evidence_turns": [
+            12,
+            17
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Оператор вежливо отреагировал на беспокойство клиента из-за неожиданного изменения тарифа.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Ответы оператора последовательные и понятные, клиенту не пришлось переспрашивать из-за порядка изложения; уточнение про отчёт дано ясно.",
+          "evidence_turns": [
+            15,
+            17
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": true,
+          "rationale": "Оператор подвёл итог, предложил написать при сохранении вопроса и попрощался.",
+          "evidence_turns": [
+            19
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "В ответах оператора нет оскорблений клиента, предложений платных услуг вне компании или раскрытия конфиденциальных данных.",
+          "evidence_turns": [
+            10
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 100.0,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-003",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "First operator response (index 10) greets in Russian ('Добрый день!') and introduces the operator ('Я Лера из поддержки').",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "The operator used the known details (tariff 'Инвестор', purchase of stocks, international market) and asked a clarifying question about the channel (app vs web) before advising.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": null,
+          "rationale": "N/A by na_rule: general pricing inquiry, no protected action or sensitive disclosure involved.",
+          "evidence_turns": [
+            1,
+            11
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 10,
+          "rationale": "The client's core question (commission on the 'Инвестор' tariff for buying stocks on the international market, and where to find commission info) was never answered: the operator only repeated where the tariff name is shown and closed. A substantive question remains unresolved, so 10. Commission/tariff specifics depend on external financial policy that cannot be verified here, so uncertainty/human review is flagged.",
+          "evidence_turns": [
+            14,
+            15
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "The operator was polite throughout ('Добрый день!', 'Хорошего дня!') and did not ignore an expressed frustration; the client showed impatience only by asking for an operator before the agent joined, and no specific complaint was voiced to the operator.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 7,
+          "rationale": "Answers are grammatically clear and understandable, but there is one notable dialogue-management problem: the operator closed the chat by re-answering the tariff-name question instead of addressing the outstanding commission question the client had just raised. No wait-time or intonation aspects are assessed from the text.",
+          "evidence_turns": [
+            13,
+            15
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": false,
+          "rationale": "The last operator turn includes a goodbye ('Хорошего дня!') but no summarization of the outcome and no offer of further help, so the closing is incomplete.",
+          "evidence_turns": [
+            15
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "Across all operator turns (indices 10, 12, 14) there are no insults to the customer, no suggestion of paid services outside the company, and no disclosure of confidential information.",
+          "evidence_turns": [
+            11
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 75.63,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-004",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "Первый ответ оператора (индекс 9) содержит приветствие на языке клиента («Здравствуйте») и самопредставление («я Артём»).",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "Оператор опирается на известное из переписки (нужны реквизиты для пополнения) и уточняет потребность подтверждающим вопросом в первом же ответе, а позднее отрабатывает уточнение клиента про валюту (евро).",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": null,
+          "rationale": "Запрос носит общий информационный характер (как пополнить счёт переводом по реквизитам); оператор не раскрывал чувствительные данные по счёту и не выполнял защищённых действий, поэтому верификация личности не требовалась по na_rule.",
+          "evidence_turns": [
+            1,
+            10
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 20,
+          "rationale": "Оператор дал конкретный путь в приложении для получения реквизитов и подтвердил возможность выбрать валюту (евро), после чего клиент сообщил, что вопрос решён («Нашёл, теперь понятно»). Материальный вопрос закрыт, следующий шаг понятен.",
+          "evidence_turns": [
+            10,
+            12,
+            13
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Клиент не выражал недовольства или неудобства; оператор общался вежливо — приветствие, спокойное подтверждение решения и доброе пожелание в конце.",
+          "evidence_turns": [
+            10,
+            14
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Ответы оператора чёткие и последовательные: сначала ориентир в приложении, затем прямой ответ на вопрос о валюте; клиенту не пришлось переспрашивать из-за подачи информации. Ожидание подключения было обозначено в чате до ответа оператора (сообщение бота об ожидании после эскалации).",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": false,
+          "rationale": "Оператор попрощался («Хорошего дня!»), но не подвёл итог решения и не предложил дополнительную помощь, тогда как критерий требует и того, и другого.",
+          "evidence_turns": [
+            14
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "В речи оператора нет оскорблений клиента, предложений платных услуг вне компании или разглашения конфиденциальной информации; идентификация не требовалась и чувствительные данные не раскрывались.",
+          "evidence_turns": [
+            10,
+            12
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 93.75,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-005",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "The first operator turn (index 9) greets in Russian (the client's language) and gives the operator's name, satisfying both parts of the criterion.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "The client's need (top-up by requisites from a branch, commission question) was already known from the pre-escalation turns, and the operator used those known details in her first reply, addressing the commission topic and then the requisites question without re-asking what the client had already stated.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": null,
+          "rationale": "General pricing/navigation request; no identity check or protected action was required or performed.",
+          "evidence_turns": [
+            1,
+            10
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 15,
+          "rationale": "Both material questions were eventually handled: the requisites path was given explicitly after the clarification, and for the commission the operator stated the dependency on the client's bank conditions and gave a valid next step (check with the bank before transferring). Minor omission: the first reply (index 9) did not resolve the bank-vs-broker commission split and the first requisites answer (index 11) was too vague, requiring a re-ask; correctness of the commission attribution depends on external financial policy, so human review is flagged.",
+          "evidence_turns": [
+            14,
+            16
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "The operator was polite throughout (greeting at index 9) and, when the client could not follow her previous wording, apologised and rephrased at index 13. The client did not express frustration, so there was no specific frustration to address.",
+          "evidence_turns": [
+            14
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 4,
+          "rationale": "The operator's first navigation answer (index 11) was unclear and out of order, so the customer had to re-ask at index 12 before the operator gave the coherent step-by-step path at index 13; this matches the 'customer has to re-ask due to presentation/order' step. No wait-threshold, tag, attachment, intonation or diction factors were scored.",
+          "evidence_turns": [
+            12,
+            13
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": false,
+          "rationale": "The operator had the opportunity to close at her final turn (index 15) and used it only for a farewell: she neither summarised the outcome (requisites path found, commission to be checked with the bank) in a closing form nor offered further help, so only the goodbye element is present.",
+          "evidence_turns": [
+            16
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "Across the whole conversation (indices 0-15) no operator insult toward the customer, no referral to a paid service outside the company, and no disclosure of confidential information occurred; the operator only discussed general commission dependency and in-app navigation.",
+          "evidence_turns": [
+            10
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 76.25,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-006",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "Первая реплика оператора содержит приветствие на языке клиента (русском) и представление по имени — оба условия выполнены.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "Оператор опирался на известные из эскалации детали (платёж уже отправлен, нужна проверка зачисления) и до окончательного ответа запросил недостающую деталь — валюту перевода — для обращения.",
+          "evidence_turns": [
+            13
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": true,
+          "rationale": "Оператор до каких-либо действий по счёту потребовал подтверждения личности; система подтвердила личность (индекс 11) раньше, чем оператор передал вопрос по зачислению специалистам (индекс 12). Чувствительные данные до идентификации не раскрывались.",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 15,
+          "rationale": "Основной вопрос (проверка незачисленного пополнения) решён не полностью, но дан понятный следующий шаг: обращение передано специалистам и ответ будет сообщён в этом чате. Сроки и номер обращения не названы — незначительное упущение. Корректность самой процедуры рассмотрения платежа зависит от внутренней политики компании, независимого источника политики нет, поэтому корректность консультации не подтверждена.",
+          "evidence_turns": [
+            13
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Оператор вежлив и прямо откликается на обеспокоенность клиента из-за незачисленного платежа, а также благодарит за ожидание (индекс 14).",
+          "evidence_turns": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Реплики оператора последовательны и понятны, логика диалога не нарушена, клиенту не приходилось переспрашивать из-за изложения. Ожидание до подключения сопровождалось предупреждением бота (индекс 7). В рамках допустимого — 10.",
+          "evidence_turns": [
+            15
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": true,
+          "rationale": "В финальной реплике оператор резюмирует дальнейший порядок («мы сообщим вам в этом чате») и прощается.",
+          "evidence_turns": [
+            15
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "Проверены все реплики оператора (индексы 9–14): нет оскорблений клиента, нет предложения платных услуг вне компании, нет раскрытия конфиденциальной информации — личность была подтверждена до действий по счёту.",
+          "evidence_turns": [
+            10
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 95.0,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-ru-007",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "The matching stored evaluation failed; no successful prediction is available."
+    },
+    {
+      "conversation_id": "p1-ru-008",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-009",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-010",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-011",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-012",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-013",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-014",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-015",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-016",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-017",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-018",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-019",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-020",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-021",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-022",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-023",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-024",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-026",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-027",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-028",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-ru-030",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-001",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-002",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-003",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "The first operator turn (idx 10) opens with a greeting in the client's language ('Сәлеметсіз бе') and a self-introduction ('мен Дана'), so both greeting and self-identification are present in the first operator response.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "The client initially gave only the problem (transfer sent yesterday, not visible). Before acting on the case the operator gathered the missing specifics: currency of the transfer (idx 13) and the approximate time it was made (idx 16), and used the already-known detail (payment sent yesterday).",
+          "evidence_turns": [
+            14
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": true,
+          "rationale": "The operator explicitly required identity confirmation before touching the payment case (idx 10) and only after the system recorded successful verification (idx 12) proceeded to handle the transfer question (idx 13). No sensitive account/payment details were revealed before verification.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 20,
+          "rationale": "The secondary questions were fully solved: the operator gave a concrete app path for downloading the report (idx 21) and confirmed a one-month period with start/end selection (idx 23). The main issue (transfer not showing) was escalated to specialists as a valid next step, with the added currency/time details and an explicit promise to reply in this chat (idx 13, 18, 25); the client accepted this (idx 19, 24). No material question was left without a solution or a valid next step. Whether the escalation path and the instruction to hold the receipt match internal financial policy cannot be verified from the transcript, so correctness is not asserted.",
+          "evidence_turns": [
+            22
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "The operator directly acknowledged the client's worry about missing money in her first turn (idx 10) and remained polite and cooperative throughout, confirming the follow-up arrangement without any dismissive wording.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Operator turns are clear, ordered and non-contradictory: verification request, then case details, then the report instructions given as a sequential step-by-step path (idx 21, 23), and a closing line (idx 25). The client never had to re-ask because of presentation or order, and the handoff wait was announced by the bot before the operator joined.",
+          "evidence_turns": [
+            22
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": true,
+          "rationale": "In the last operator turn the operator recapped the agreed outcome (the transfer answer will be sent in this chat) and said goodbye, so both a summary/confirmation and a farewell are present, and the operator had the opportunity to close.",
+          "evidence_turns": [
+            26
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "Reviewing all operator turns (idx 10-25): no insults toward the client, no offer or performance of a paid service outside the company, and no disclosure of confidential data before or after identity verification (verification was required first, idx 10-13). No gross-error condition is met.",
+          "evidence_turns": [
+            11
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 100.0,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-kz-004",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-005",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-006",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-007",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-008",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-010",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-011",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-012",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-013",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-014",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-kz-015",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-001",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-002",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-003",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-004",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-005",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "First operator turn greets the client in English and introduces self by name.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "Operator used known details (transfer already sent) and asked for missing ones (currency, timing) before/while handling the case.",
+          "evidence_turns": [
+            14
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": true,
+          "rationale": "Operator stated identity verification was required before looking at the account; system confirms verification before account checks continued.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 20,
+          "rationale": "Transfer issue given a valid next step (case escalated with currency and timing, follow-up promised in chat) and the broker report question was fully answered.",
+          "evidence_turns": [
+            16
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Operator acknowledged the client's nervousness about the missing transfer and remained polite throughout.",
+          "evidence_turns": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 10,
+          "rationale": "Operator turns are clear, ordered and coherent; questions and next steps are understandable with no re-asks caused by presentation.",
+          "evidence_turns": [
+            19
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": true,
+          "rationale": "Operator summarized the follow-up plan and said goodbye in the final turn.",
+          "evidence_turns": [
+            30
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "No insults to the client, no paid service outside the company, and no confidential disclosure observed in operator turns.",
+          "evidence_turns": [
+            30
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 100.0,
+        "critical_flag": false
+      }
+    },
+    {
+      "conversation_id": "p1-en-007",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-008",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-009",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-010",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-011",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-012",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-013",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-014",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p1-en-015",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p4-ru-003",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p4-ru-002",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p4-ru-001",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p4-ru-005",
+      "status": "error",
+      "criteria": [],
+      "score": null,
+      "error": "No stored evaluation exists for this source conversation."
+    },
+    {
+      "conversation_id": "p4-ru-004",
+      "status": "ok",
+      "criteria": [
+        {
+          "criterion_id": "contact",
+          "value": true,
+          "rationale": "В первом ответе оператора (14) есть приветствие на русском языке и представление: оператор называет компанию и своё имя. Оба условия выполнены.",
+          "evidence_turns": [
+            15
+          ]
+        },
+        {
+          "criterion_id": "discovery",
+          "value": true,
+          "rationale": "Запрос клиента был очень расплывчатым (не может купить облигации, приказ отклоняется). Оператор до консультации уточнял недостающие детали — какие именно облигации и их тикер, а также проверил счёт, прежде чем объяснять ситуацию.",
+          "evidence_turns": [
+            32,
+            36
+          ]
+        },
+        {
+          "criterion_id": "identification",
+          "value": true,
+          "rationale": "Оператор до обсуждения данных брокерского счёта и выявленного приказа провёл идентификацию: запросил ФИО, адрес регистрации и шестизначный код из СМС, и только после подтверждения кода стал комментировать приказ клиента.",
+          "evidence_turns": [
+            47,
+            71
+          ]
+        },
+        {
+          "criterion_id": "consultation",
+          "value": 15,
+          "rationale": "Основной вопрос решён: оператор объяснил, что приказ на облигацию MFB Finans 13 выпуск клиент самостоятельно выставить не может, что рынок Казахстана уже закрыт, и дал следующий шаг — звонок трейдерам или письмо на почту. Однако осталось неясным, почему приказ отклонялся (причина не диагностирована), а номер телефона передан неразборчиво («73 пятерки»). Корректность правил выставления приказов через трейдеров и часов работы рынка зависит от внешней финансовой политики, надёжного источника нет — требуется проверка человеком.",
+          "evidence_turns": [
+            90,
+            112
+          ]
+        },
+        {
+          "criterion_id": "empathy",
+          "value": true,
+          "rationale": "Оператор вежлив на протяжении всего разговора, извинительно-сочувственно реагирует на проблему («К сожалению…»), смягчает спор («я не пытаюсь с вами спорить») и учитывает неудобство клиента, предлагая на выбор письмо или звонок.",
+          "evidence_turns": [
+            63,
+            84
+          ]
+        },
+        {
+          "criterion_id": "dialogue",
+          "value": 7,
+          "rationale": "Диалог в целом понятен, но есть заметная проблема: адрес почты приходилось диктовать многократно, клиент переспрашивал («Так как ещё раз?», «Ещё раз повторите?»), а номер телефона передан неразборчиво. Повторные пояснения делают консультацию понимаемой, но презентация контактов страдает.",
+          "evidence_turns": [
+            100,
+            107
+          ]
+        },
+        {
+          "criterion_id": "closure",
+          "value": false,
+          "rationale": "В последней реплике оператор предлагает задать дополнительные вопросы, но прощания нет; клиент завершил разговор (сообщение 113), и завершающая реплика оператора не содержит прощания.",
+          "evidence_turns": [
+            115
+          ]
+        },
+        {
+          "criterion_id": "critical",
+          "value": false,
+          "rationale": "Грубых нарушений не зафиксировано: оператор не оскорблял клиента, не предлагал платных услуг вне компании и не раскрывал конфиденциальные данные до идентификации — данные счёта обсуждались после подтверждения кода.",
+          "evidence_turns": [
+            84
+          ]
+        }
+      ],
+      "score": {
+        "final_score": 85.5,
+        "critical_flag": false
+      }
+    }
+  ]
+}

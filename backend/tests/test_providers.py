@@ -6,7 +6,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.contracts import ConversationDetail
-from app.evidence import ModelOutput
+from app.evidence import provider_output_schema
 from app.providers import SYSTEM_PROMPT, OpenAIProvider
 from app.rubrics import get_rubric
 from tests.provider_stub import valid_output
@@ -50,7 +50,7 @@ def test_real_http_adapter_structured_schema_full_transcript_and_retry(settings,
     assert len(requests) == 2
     body = requests[-1]
     assert body["response_format"]["json_schema"]["strict"] is True
-    assert body["response_format"]["json_schema"]["schema"] == ModelOutput.model_json_schema()
+    assert body["response_format"]["json_schema"]["schema"] == provider_output_schema(rubric)
     assert "untrusted" in SYSTEM_PROMPT.lower()
     assert "ONLY operator" in SYSTEM_PROMPT
     assert json.loads(body["messages"][1]["content"])[
@@ -61,7 +61,7 @@ def test_real_http_adapter_structured_schema_full_transcript_and_retry(settings,
     assert "UNTRUSTED" not in caplog.text
 
 
-def test_structured_schema_objects_forbid_additional_properties():
+def test_structured_schema_objects_forbid_additional_properties(session):
     def check(node):
         if isinstance(node, dict):
             if node.get("type") == "object":
@@ -73,7 +73,7 @@ def test_structured_schema_objects_forbid_additional_properties():
             for child in node:
                 check(child)
 
-    check(ModelOutput.model_json_schema())
+    check(provider_output_schema(get_rubric(session, "default", 1)))
 
 
 def test_model_config_required_no_runtime_stub(settings, session):

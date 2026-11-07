@@ -10,10 +10,11 @@ from app import models as m
 from app.config import Settings
 from app.contracts import ConversationDetail, EvaluationRequest, RubricDetail
 from app.errors import ServiceError
-from app.evidence import EvidenceError, ModelOutput, validate_evidence
+from app.evidence import EvidenceError, ModelOutput, RepairFeedback, validate_evidence
 from app.json_output import parse_model_json, private_output
 from app.providers import LLMProvider, ProviderFailure, ProviderReply
 from app.repository import conversation_detail, decisions, get_conversation, get_evaluation, iso
+from app.responses import Usage
 from app.rubrics import get_rubric
 from app.scoring import Score, score_evaluation
 
@@ -71,6 +72,7 @@ def usage_summary(
     transport_attempts: int | None = 0,
     repair_attempts: int = 0,
 ) -> dict:
+    reply_metrics_complete = not incomplete
     if transport_attempts == 0 and replies:
         transport_attempts = sum(reply.transport_attempts for reply in replies)
     incomplete = incomplete or any(not r.usage_complete for r in replies)
@@ -119,6 +121,19 @@ def usage_summary(
         if transport_attempts is not None
         else None,
         "repair_attempts": repair_attempts,
+        "finish_reason": replies[-1].finish_reason if replies else None,
+        "native_finish_reason": replies[-1].native_finish_reason if replies else None,
+        "finish_reasons": [r.finish_reason for r in replies],
+        "reasoning_tokens": sum(r.reasoning_tokens or 0 for r in replies)
+        if replies
+        and reply_metrics_complete
+        and all(r.reasoning_tokens is not None for r in replies)
+        else None,
+        "provider_request_duration_ms": sum(r.request_duration_ms or 0 for r in replies)
+        if replies
+        and reply_metrics_complete
+        and all(r.request_duration_ms is not None for r in replies)
+        else None,
         "input_price_usd_per_1m": float(settings.llm_input_price_usd_per_1m)
         if settings.llm_input_price_usd_per_1m is not None
         else None,
@@ -159,6 +174,9 @@ def run_evaluation(
     generation_calls = 0
     for attempt_number in (1, 2):
         reply: ProviderReply | None = None
+        output: ModelOutput | None = None
+        active_feedback = feedback
+        failed_request_ms = None
         attempt_started = time.monotonic()
         error_code = None
         attempt_transports: int | None = 0
@@ -180,6 +198,8 @@ def run_evaluation(
             )
             output = ModelOutput.model_validate(raw)
             results = validate_evidence(output, rubric, conversation)
+            if isinstance(active_feedback, RepairFeedback):
+                active_feedback.validate_unchanged(output)
             score = score_evaluation(
                 rubric.criteria, {result["criterion_id"]: result["value"] for result in results}
             )
@@ -192,6 +212,19 @@ def run_evaluation(
             feedback = list(getattr(exc, "issues", [])) or [
                 "response: match the complete JSON schema; provide every enabled criterion with legal values and valid exact evidence"
             ]
+            if isinstance(exc, EvidenceError) and output is not None:
+                targets = [
+                    c.id
+                    for c in rubric.criteria
+                    if c.enabled
+                    and any(
+                        issue.startswith(f"criterion {c.id}:")
+                        or issue.startswith(f"criterion {c.id},")
+                        for issue in exc.issues
+                    )
+                ]
+                if targets:
+                    feedback = RepairFeedback(feedback, output, targets)
             error = {
                 "code": error_code,
                 "message": "Model output failed validation after bounded repair",
@@ -205,6 +238,11 @@ def run_evaluation(
             if transport_attempts is not None:
                 transport_attempts += exc.transport_attempts
             error_code = exc.code
+            failed_request_ms = exc.request_duration_ms
+            if exc.code == "MODEL_OUTPUT_LIMIT":
+                feedback = [
+                    "Output budget exhausted: return concise complete JSON; preserve exact evidence"
+                ]
             error = {"code": exc.code, "message": exc.message, "details": None}
         except ServiceError as exc:
             error_code = exc.code
@@ -218,15 +256,21 @@ def run_evaluation(
             transport_attempts = None
             attempt_transports = None
         unknown_usage = unknown_usage or reply is None
+        attempt_usage = usage_summary(
+            [reply] if reply else [], settings, transport_attempts=attempt_transports
+        )
+        if reply is None:
+            attempt_usage["provider_request_duration_ms"] = failed_request_ms
+        if isinstance(active_feedback, RepairFeedback):
+            attempt_usage["repair_criterion_ids"] = active_feedback.criterion_ids
+            attempt_usage["repair_mode"] = "targeted_full_document"
         with factory() as session:
             session.add(
                 m.ModelAttempt(
                     evaluation_id=evaluation_id,
                     attempt_number=attempt_number,
                     raw_output=private_output(reply.raw_output) if reply else None,
-                    usage=usage_summary(
-                        [reply] if reply else [], settings, transport_attempts=attempt_transports
-                    ),
+                    usage=attempt_usage,
                     duration_ms=int((time.monotonic() - attempt_started) * 1000),
                     error_code=error_code,
                 )
@@ -237,7 +281,7 @@ def run_evaluation(
             break
         score = None
         results = []
-        if error_code != "INVALID_MODEL_OUTPUT":
+        if error_code not in {"INVALID_MODEL_OUTPUT", "MODEL_OUTPUT_LIMIT"}:
             break  # Network retry/rate-limit handling is bounded inside the provider.
     with factory() as session:
         item = get_evaluation(session, evaluation_id, lock=True)
@@ -302,6 +346,10 @@ def preserve_interrupted_usage(session: Session, item: m.Evaluation) -> None:
         transport_attempts=None,
         transport_retries=None,
         repair_attempts=None,
+        reasoning_tokens=None,
+        provider_request_duration_ms=None,
+        finish_reason=None,
+        native_finish_reason=None,
     )
     item.usage = summary
 
@@ -354,7 +402,10 @@ def evaluation_detail(session: Session, item: m.Evaluation) -> dict:
         "original_gross_error": item.gross_error,
         "needs_human_review": item.needs_human_review,
         "results": results,
-        "usage": item.usage,
+        # New diagnostic metrics stay durable/private; frozen REST Usage is unchanged.
+        "usage": {k: v for k, v in item.usage.items() if k in Usage.model_fields}
+        if item.usage is not None
+        else None,
         "duration_ms": item.duration_ms,
         "policy_grounding": "transcript_only",
         "error": item.error,

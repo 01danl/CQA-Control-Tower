@@ -1,16 +1,18 @@
 {
   "profile_version": "1.0",
-  "confirmed": false,
-  "authority": "Pending the official organizer JSON example and Developer 1 exporter handoff; do not mark confirmed based on synthetic tests.",
-  "records_key": null,
-  "criterion_id_key": null,
-  "explanation_key": null,
-  "evidence_key": null,
-  "criteria_container": null,
-  "binary_encoding": null,
-  "model_modes": [],
-  "error_style": null,
+  "confirmed": true,
+  "authority": "Organizer mandatory JSON appendix supplied by project owner on 2026-11-07; docs/ORGANIZER_SUBMISSION_SCHEMA.md",
+  "records_key": "results",
+  "criterion_id_key": "criterion_id",
+  "explanation_key": "rationale",
+  "evidence_key": "evidence_turns",
+  "criteria_container": "list",
+  "binary_encoding": "boolean",
+  "model_modes": [
+    "external_api"
+  ],
+  "error_style": "string",
   "error_critical_value": null,
-  "evidence_required": null,
-  "error_key": null
+  "evidence_required": true,
+  "error_key": "error"
 }

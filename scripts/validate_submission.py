@@ -18,9 +18,32 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 TEAM = "bda2402"
-WEIGHTS = {"C01": 10, "C02": 15, "C03": 20, "C04": 20, "C05": 15, "C06": 15, "C07": 5, "C08": 0}
-NA_IDS = {"C02", "C03", "C04", "C07"}
-SCALES = {"C04": {0, 5, 10, 15, 20}, "C06": {0, 4, 7, 10}}
+MODEL = "deepseek/deepseek-v4.1-flash"
+OFFICIAL_FIELDS = {
+    "records_key": "results",
+    "criterion_id_key": "criterion_id",
+    "explanation_key": "rationale",
+    "evidence_key": "evidence_turns",
+    "criteria_container": "list",
+    "binary_encoding": "boolean",
+    "model_modes": ["external_api"],
+    "error_style": "string",
+    "error_critical_value": None,
+    "evidence_required": True,
+    "error_key": "error",
+}
+WEIGHTS = {
+    "contact": 10,
+    "discovery": 15,
+    "identification": 20,
+    "consultation": 20,
+    "empathy": 15,
+    "dialogue": 15,
+    "closure": 5,
+    "critical": 0,
+}
+NA_IDS = {"discovery", "identification", "consultation", "closure"}
+SCALES = {"consultation": {0, 5, 10, 15, 20}, "dialogue": {0, 4, 7, 10}}
 MAX_BYTES = 32 * 1024 * 1024
 SECRET = re.compile(
     r"(?:sk-(?:or-v1-|proj-)?[A-Za-z0-9_-]{16,}|\bAKIA[A-Z0-9]{16}\b|"
@@ -145,6 +168,11 @@ class WireFormat:
             "$profile",
         )
         nonblank(profile["authority"], "$profile/authority")
+        require(
+            all(profile[k] == value for k, value in OFFICIAL_FIELDS.items()),
+            "OFFICIAL_PROFILE_MISMATCH",
+            "$profile",
+        )
         for key in (
             "records_key",
             "criterion_id_key",
@@ -173,8 +201,7 @@ class WireFormat:
             "$profile",
         )
         require(
-            profile["error_key"]
-            not in {"conversation_id", "status", "criteria", "final_score", "critical_flag"},
+            profile["error_key"] not in {"conversation_id", "status", "criteria", "score"},
             "PROFILE_FIELD_COLLISION",
             "$profile",
         )
@@ -205,7 +232,7 @@ class WireFormat:
         require(type(profile["evidence_required"]) is bool, "PROFILE_EVIDENCE_INVALID", "$profile")
         return cls(
             **{
-                k: v
+                k: tuple(v) if k == "model_modes" else v
                 for k, v in profile.items()
                 if k not in {"profile_version", "confirmed", "authority"}
             }
@@ -374,6 +401,13 @@ def validate(
     expected_model: str | None = None,
 ) -> dict:
     require(type(expected_count) is int and expected_count > 0, "EXPECTED_COUNT_INVALID")
+    require(
+        all(
+            getattr(fmt, k) == (tuple(value) if k == "model_modes" else value)
+            for k, value in OFFICIAL_FIELDS.items()
+        ),
+        "OFFICIAL_PROFILE_MISMATCH",
+    )
     privacy_check(payload)
     top = shape(payload, {"schema_version", "team_name", "model", fmt.records_key}, set(), "$")
     require(top["schema_version"] == "1.0", "SCHEMA_VERSION_INVALID", "$/schema_version")
@@ -395,8 +429,7 @@ def validate(
         "MODEL_NAME_PLACEHOLDER",
         "$/model/name",
     )
-    if expected_model is not None:
-        require(name == expected_model, "MODEL_NAME_MISMATCH", "$/model/name")
+    require(name == (expected_model or MODEL), "MODEL_NAME_MISMATCH", "$/model/name")
     records = top[fmt.records_key]
     require(type(records) is list and len(records) == expected_count, "RECORD_COUNT_MISMATCH")
     ids: set[str] = set()
@@ -406,7 +439,7 @@ def validate(
         location = f"$/{fmt.records_key}/[{index}]"
         record = shape(
             record,
-            {"conversation_id", "status", "criteria", "final_score", "critical_flag"},
+            {"conversation_id", "status", "criteria", "score"},
             {fmt.error_key},
             location,
         )
@@ -428,11 +461,7 @@ def validate(
         )
         if record["status"] == "error":
             errors += 1
-            require(
-                not criteria and record["final_score"] is None, "ERROR_RECORD_NOT_EMPTY", location
-            )
-            flag = record["critical_flag"]
-            require(flag is fmt.error_critical_value, "ERROR_FLAG_INVALID", location)
+            require(not criteria and record["score"] is None, "ERROR_RECORD_NOT_EMPTY", location)
             error = record.get(fmt.error_key)
             if fmt.error_style == "object":
                 error = shape(error, {"code", "message"}, set(), location)
@@ -498,7 +527,10 @@ def validate(
                 )
                 bounded += len(turns)
         require(set(values) == set(WEIGHTS), "CRITERION_SET_INVALID", location)
-        score = record["final_score"]
+        score_object = shape(
+            record["score"], {"final_score", "critical_flag"}, set(), location + "/score"
+        )
+        score = score_object["final_score"]
         require(
             type(score) in (int, float, Decimal)
             and Decimal(str(score)).is_finite()
@@ -512,10 +544,13 @@ def validate(
             location,
         )
         critical = (
-            values["C08"] is True if fmt.binary_encoding == "boolean" else values["C08"] == "yes"
+            values["critical"] is True
+            if fmt.binary_encoding == "boolean"
+            else values["critical"] == "yes"
         )
         require(
-            type(record["critical_flag"]) is bool and record["critical_flag"] is critical,
+            type(score_object["critical_flag"]) is bool
+            and score_object["critical_flag"] is critical,
             "CRITICAL_FLAG_MISMATCH",
             location,
         )
@@ -532,7 +567,7 @@ def validate(
         "evidence_bounds": "PASS" if evidence_count and bounded == evidence_count else "NOT TESTED",
         "model_identity": "MATCHED_EXPECTED_NAME"
         if expected_model
-        else "NON_PLACEHOLDER_ONLY_NOT_PROVIDER_VERIFIED",
+        else "DEFAULT_MODEL_NAME_MATCH_NOT_PROVIDER_VERIFIED",
         "privacy": "PATTERN_GUARDS_PASS_MANUAL_REVIEW_STILL_REQUIRED",
     }
 

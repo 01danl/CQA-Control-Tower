@@ -1,7 +1,7 @@
 # bda2402 — final submission checklist
 
-- [ ] Official JSON source + exporter handoff reviewed; wire profile confirmed from
-  that authority, not our synthetic fixtures. Allowed model.mode / field types agreed.
+- [x] Owner-supplied official JSON appendix recorded in ORGANIZER_SUBMISSION_SCHEMA.md;
+  independent validator/profile aligned with official IDs and nested score.
 - [ ] Validator and exporter tested TOGETHER on actual output; both reviewed
   implementations available on main through the team's authorized merge process.
 - [ ] Actual DEV source has 65 unique IDs; actual newly released control source has
@@ -23,6 +23,7 @@
 - [ ] Public links, SHA, UTC verification time and final CI URL handed to organizers
   before the actual deadline. If blocked, report the real failure; never publish fakes.
 
-Current state: **BLOCKED** on official wire-format/exporter handoff and missing actual
-DEV/PROD artifacts. No merge, push or paid calls performed. Full commands and the
+Current state: format compatibility and actual 6-ok/59-error DEV verification PASS.
+Final delivery remains **BLOCKED** on unfinished DEV and unreleased control/PROD.
+The reliability task performed no paid call or push. Full commands and the
 isolated synthetic rehearsal: [SUBMISSION_DELIVERY_RUNBOOK.md](SUBMISSION_DELIVERY_RUNBOOK.md).

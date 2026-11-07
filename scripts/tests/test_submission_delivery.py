@@ -85,13 +85,13 @@ class DeliveryTests(unittest.TestCase):
         ref["transcript"][1]["text"] = (
             "Synthetic operator reply for this validation test, not a customer transcript. " * 2
         )
-        payload["results"][0]["criteria"][0]["explanation"] = ref["transcript"][0]["text"]
-        payload["results"][0]["criteria"][1]["explanation"] = ref["transcript"][1]["text"]
+        payload["results"][0]["criteria"][0]["rationale"] = ref["transcript"][0]["text"]
+        payload["results"][0]["criteria"][1]["rationale"] = ref["transcript"][1]["text"]
         with self.assertRaises(ValidationError) as error:
             validate(payload, 1, WireFormat.read(self.fmt), transcripts={"synthetic-test-0": ref})
         self.assertEqual(error.exception.code, "FULL_PRIVATE_CALL_COPY")
         payload = submission()
-        payload["results"][0]["criteria"][0]["explanation"] = json.dumps(ref["transcript"])
+        payload["results"][0]["criteria"][0]["rationale"] = json.dumps(ref["transcript"])
         with self.assertRaises(ValidationError):
             validate(payload, 1, WireFormat.read(self.fmt))
 

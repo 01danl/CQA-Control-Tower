@@ -478,3 +478,48 @@ def test_cli_no_paid_calls_read_only_and_incomplete_write_gate(
     assert export.main() == 1
     assert "Forged" not in capsys.readouterr().out
     assert session.scalar(select(m.Evaluation.evaluation_id)) == stored.evaluation_id
+
+
+def test_independent_official_validator_accepts_exporter_without_importing_it(
+    session, stored, tmp_path
+):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    path = tmp_path / "results.json"
+    path.write_bytes(export.serialize(document(session)))
+    reference = tmp_path / "source.json"
+    reference.write_text(
+        json.dumps(
+            [
+                {
+                    "conversation_id": s.conversation_id,
+                    "channel": s.channel,
+                    "transcript": s.transcript,
+                }
+                for s in export.source_rows(session, "DEV", "dev")
+            ]
+        )
+    )
+    script = Path(__file__).resolve().parents[2] / "scripts/validate_submission.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(path),
+            "--expected-count",
+            "65",
+            "--reference-dataset",
+            str(reference),
+            "--expected-model",
+            export.MODEL,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+    report = json.loads(result.stdout)
+    assert report["source_ids"] == report["evidence_bounds"] == "PASS"
+    assert report["ok"] == 1 and report["errors"] == 64
