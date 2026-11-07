@@ -10,8 +10,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
+from app.api import router
+from app.batch import JobRunner
 from app.config import Settings
+from app.dataset_client import DatasetClient
 from app.db import get_session, make_engine, make_session_factory
+from app.errors import ServiceError
+from app.providers import LLMProvider, OpenAIProvider
+from app.rubrics import seed_default
 from app.schemas import ErrorEnvelope, HealthResponse
 
 
@@ -22,18 +28,37 @@ def error_response(status: int, code: str, message: str, details=None):
     )
 
 
-def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    engine=None,
+    provider: LLMProvider | None = None,
+    dataset_client: DatasetClient | None = None,
+    start_workers: bool = True,
+) -> FastAPI:
     settings = settings or Settings()
     database_engine = engine if engine is not None else make_engine(settings)
+    factory = make_session_factory(database_engine)
+    runner = JobRunner(factory, provider or OpenAIProvider(settings), settings)
 
     @asynccontextmanager
     async def lifespan(_app):
-        yield
-        if engine is None:
-            database_engine.dispose()
+        with factory() as session:
+            seed_default(session)
+        if start_workers:
+            runner.start()
+        try:
+            yield
+        finally:
+            if start_workers:
+                runner.stop()
+            if engine is None:
+                database_engine.dispose()
 
     app = FastAPI(title="CQA Control Tower", version="0.1.0", lifespan=lifespan)
-    app.state.session_factory = make_session_factory(database_engine)
+    app.state.session_factory = factory
+    app.state.settings = settings
+    app.state.dataset_client = dataset_client or DatasetClient(settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -56,6 +81,14 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     async def unexpected_error(_request, _exc):
         return error_response(500, "INTERNAL_ERROR", "Unexpected server error")
 
+    @app.exception_handler(ServiceError)
+    async def service_error(_request, exc: ServiceError):
+        return error_response(exc.status, exc.code, exc.message, exc.details)
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error(_request, _exc):
+        return error_response(503, "DATABASE_ERROR", "Database operation failed")
+
     @app.get(
         "/api/v1/health",
         response_model=HealthResponse,
@@ -69,6 +102,7 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
             return error_response(503, "DATABASE_UNAVAILABLE", "Database is unavailable")
         return HealthResponse()
 
+    app.include_router(router)
     return app
 
 

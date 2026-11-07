@@ -1,4 +1,6 @@
-from sqlalchemy import create_engine
+from collections.abc import Iterator
+
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from starlette.requests import Request
 
@@ -9,19 +11,17 @@ class Base(DeclarativeBase):
     pass
 
 
-def make_engine(settings: Settings):
+def make_engine(settings: Settings) -> Engine:
     url = settings.database_url.get_secret_value()
-    options = {"pool_pre_ping": True, "hide_parameters": True}
-    if url.startswith("sqlite"):
-        options["connect_args"] = {"check_same_thread": False}
-    return create_engine(url, **options)
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    return create_engine(url, pool_pre_ping=True, hide_parameters=True, connect_args=connect_args)
 
 
-def make_session_factory(engine):
+def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 
-def get_session(request: Request):
+def get_session(request: Request) -> Iterator[Session]:
     with request.app.state.session_factory() as session:
         try:
             yield session
