@@ -1,0 +1,16 @@
+{
+  "profile_version": "1.0",
+  "confirmed": false,
+  "authority": "Pending the official organizer JSON example and Developer 1 exporter handoff; do not mark confirmed based on synthetic tests.",
+  "records_key": null,
+  "criterion_id_key": null,
+  "explanation_key": null,
+  "evidence_key": null,
+  "criteria_container": null,
+  "binary_encoding": null,
+  "model_modes": [],
+  "error_style": null,
+  "error_critical_value": null,
+  "evidence_required": null,
+  "error_key": null
+}

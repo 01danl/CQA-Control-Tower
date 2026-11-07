@@ -1,0 +1,36 @@
+name: submission-format
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      final_submission:
+        description: Require both actual DEV (65) and PROD (10) artifacts
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  validate-submissions:
+    runs-on: ubuntu-latest
+    env:
+      FINAL_SUBMISSION: ${{ github.event_name == 'workflow_dispatch' && inputs.final_submission && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independent validator regressions (synthetic data only in temporary directories)
+        run: python -m unittest discover -s scripts/tests -p 'test_submission*.py' -v
+      - name: Compile standalone release tools
+        run: python -m py_compile scripts/validate_submission.py scripts/check_submission_delivery.py scripts/drill_submission_delivery.py
+      - name: Validate existing real artifacts or require both at final delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$FINAL_SUBMISSION" == "1" ]]; then
+            python scripts/check_submission_delivery.py --final
+          else
+            python scripts/check_submission_delivery.py
+          fi
