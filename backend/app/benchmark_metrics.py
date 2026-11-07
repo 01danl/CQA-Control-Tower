@@ -3,7 +3,7 @@
 import hashlib
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from statistics import mean
 
 from app.contracts import ConversationDetail, RubricDetail
@@ -26,6 +26,21 @@ def binary_metrics(pairs):
         "n": len(pairs),
         "precision": ratio(tp, tp + fp),
         "recall": ratio(tp, tp + fn),
+    }
+
+
+def outcome_diagnostics(pairs):
+    """Exact criterion outcomes, not weighted scores; pairs are (prediction, reference)."""
+    counts = Counter(pairs)
+    return {
+        "n": len(pairs),
+        "matches": sum(pred == ref for pred, ref in pairs),
+        "agreement": ratio(sum(pred == ref for pred, ref in pairs), len(pairs)),
+        "confusion": [
+            {"prediction": pred, "reference": ref, "count": count}
+            for (pred, ref), count in sorted(counts.items(), key=lambda item: repr(item[0]))
+        ],
+        "na": binary_metrics([(pred == "na", ref == "na") for pred, ref in pairs]),
     }
 
 
@@ -142,6 +157,7 @@ def summarize(cases, evaluations, annotations):
     terminal = [e for e in observed if e["status"] in ("completed", "failed")]
     complete = [e for e in observed if e["status"] == "completed"]
     per_criterion = defaultdict(list)
+    criterion_pairs = defaultdict(list)
     na_pairs, gross_pairs, errors = [], [], []
     references = 0
     null_score_pairs = []
@@ -203,6 +219,7 @@ def summarize(cases, evaluations, annotations):
         for c in rubric.criteria:
             if c.enabled:
                 per_criterion[c.id].append(predicted[c.id] == values[c.id])
+                criterion_pairs[c.id].append((predicted[c.id], values[c.id]))
                 na_pairs.append((predicted[c.id] == "na", values[c.id] == "na"))
     usages = [e.get("usage") or {} for e in terminal]
     known_retry = [u for u in usages if type(u.get("transport_retries")) is int]
@@ -247,6 +264,9 @@ def summarize(cases, evaluations, annotations):
         "per_criterion_agreement": {
             k: {"n": len(v), "matches": sum(v), "agreement": mean(v)}
             for k, v in sorted(per_criterion.items())
+        },
+        "per_criterion_diagnostics": {
+            key: outcome_diagnostics(pairs) for key, pairs in sorted(criterion_pairs.items())
         },
         "na": binary_metrics(na_pairs),
         "gross_violation_conversation": binary_metrics(gross_pairs),

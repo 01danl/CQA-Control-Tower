@@ -75,6 +75,10 @@ def test_agreement_na_false_negative_and_score_error_use_original_not_reviewer(
     result = summarize([c], {c["case_id"]: e}, {c["case_id"]: label})
     assert result["per_criterion_agreement"]["C01"]["agreement"] == 0
     assert result["na"]["fn"] == 1 and result["na"]["recall"] == 0
+    assert result["per_criterion_diagnostics"]["C03"]["na"]["fn"] == 1
+    assert result["per_criterion_diagnostics"]["C01"]["confusion"] == [
+        {"prediction": "yes", "reference": "no", "count": 1}
+    ]
     assert result["na"]["precision"] is None  # no predicted positives
     assert result["score"]["mae"] == 12.5  # reference 87.5, original AI 100
 
