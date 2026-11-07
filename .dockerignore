@@ -16,3 +16,4 @@ downloads
 **/*.key
 **/*.wav
 **/*.mp3
+**/.benchmark-private

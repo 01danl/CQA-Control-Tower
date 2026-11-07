@@ -37,3 +37,5 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+# Private benchmark transcripts, human annotations, raw outputs and approval journals
+.benchmark-private/
