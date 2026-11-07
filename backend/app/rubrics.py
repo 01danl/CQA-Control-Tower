@@ -25,6 +25,7 @@ def get_rubric(session: Session, rubric_id: str, version: int | None = None) -> 
 
 
 def publish(session: Session, draft: RubricDraft, rubric_id: str | None = None) -> RubricDetail:
+    rubric: m.Rubric | None
     if rubric_id is None:
         rubric = m.Rubric(rubric_id=m.new_id(), name=draft.name, latest_version=1)
         session.add(rubric)

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.config import Settings
 from app.contracts import SourceConversation
 from app.errors import ServiceError
+from app.privacy import silence_transport_logs
 
 
 def group_url(secret_url: str, group_id: str) -> str:
@@ -88,6 +89,7 @@ class DatasetClient:
         self.sleep = sleep
 
     def fetch(self, group_id: str) -> Dataset:
+        silence_transport_logs()
         secret = self.settings.cqa_dataset_url
         if not secret or not secret.get_secret_value():
             raise ServiceError(503, "DATASET_NOT_CONFIGURED", "Dataset endpoint is not configured")

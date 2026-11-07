@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    event,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +30,7 @@ class Conversation(Base):
     audio_url: Mapped[str | None] = mapped_column(String, nullable=True)
     # Keep source order and timestamp strings; no lossy timestamp coercion.
     transcript: Mapped[list[dict]] = mapped_column(JSON)
+    source_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
 def utcnow() -> datetime:
@@ -116,6 +118,13 @@ class ModelAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class BatchItem(Base):
+    __tablename__ = "batch_items"
+    batch_id: Mapped[str] = mapped_column(ForeignKey("batches.batch_id"), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    evaluation_id: Mapped[str] = mapped_column(ForeignKey("evaluations.evaluation_id"), index=True)
+
+
 class Appeal(Base):
     __tablename__ = "appeals"
     appeal_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -145,3 +154,14 @@ class AuditEvent(Base):
     kind: Mapped[str] = mapped_column(String(40))
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+def _reject_mutation(_mapper, _connection, _target) -> None:
+    raise ValueError(
+        "Published rubric versions, model attempts, review decisions and audit events are append-only"
+    )
+
+
+for _record in (RubricVersion, ModelAttempt, ReviewDecision, AuditEvent):
+    event.listen(_record, "before_update", _reject_mutation)
+    event.listen(_record, "before_delete", _reject_mutation)

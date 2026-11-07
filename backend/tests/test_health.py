@@ -5,7 +5,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import StaticPool
 
 from app.config import Settings
-from app.db import get_session
+from app.db import Base, get_session
 from app.main import create_app
 
 
@@ -15,7 +15,8 @@ def client():
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     settings = Settings(_env_file=None, database_url="sqlite://")
-    with TestClient(create_app(settings, engine=engine)) as client:
+    Base.metadata.create_all(engine)
+    with TestClient(create_app(settings, engine=engine, start_workers=False)) as client:
         yield client
     engine.dispose()
 
@@ -45,7 +46,7 @@ def test_health_database_failure_is_safe(client):
 
 
 def test_missing_business_endpoint_returns_contract_error(client):
-    response = client.get("/api/v1/evaluations/not-implemented")
+    response = client.get("/api/v1/not-implemented")
     assert response.status_code == 404
     assert response.json() == {
         "error": {"code": "HTTP_404", "message": "Not Found", "details": None}

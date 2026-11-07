@@ -55,8 +55,9 @@ def import_dataset(session: Session, group_id: str, dataset: Dataset) -> ImportR
         session.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:group_id))"), {"group_id": group_id}
         )
-    for source in dataset.records:
+    for source_order, source in enumerate(dataset.records):
         data = source.model_dump(mode="json")
+        data["source_order"] = source_order
         conversation_id = data.pop("conversation_id")
         existing = session.get(m.Conversation, (group_id, conversation_id))
         if existing is None:

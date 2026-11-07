@@ -123,11 +123,14 @@ class Criterion(StrictModel):
             raise ValueError("Allowed values must be unique")
         if self.type == "numeric_scale":
             if any(
-                type(v) not in (int, float) or not Decimal(str(v)).is_finite() or v < 0
+                not isinstance(v, (int, float))
+                or isinstance(v, bool)
+                or not Decimal(str(v)).is_finite()
+                or v < 0
                 for v in self.allowed_values
             ):
                 raise ValueError("Numeric scale needs finite nonnegative numeric steps")
-            if max(self.allowed_values) <= 0:  # type: ignore[type-var,operator]
+            if max(Decimal(str(v)) for v in self.allowed_values) <= 0:
                 raise ValueError("Numeric scale maximum must be positive")
         elif set(self.allowed_values) != {"yes", "no"}:
             raise ValueError("Binary/violation values must be yes and no")
