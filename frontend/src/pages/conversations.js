@@ -1,10 +1,13 @@
 import { loadReviewIndex, loadGrossHistory } from '../services/review-index.js';
 import { violationPreview } from '../components/violations.js';
+import { loadConversations, summarizeConversations } from '../services/conversation-summary.js';
+import { metricCards } from '../components/metrics.js';
 import { el, formatScore } from '../components/dom.js';
 import { button, input, select, field, heading, notice, perform, rubricPicker, rubricSelection, paidConfirmation } from '../components/forms.js';
 export async function conversationsPage(api, ctx) {
-  const items = []; let offset = 0; let total;
-  do { const page = await api.conversations({ group_id: ctx.group, limit: 100, offset }); items.push(...page.items); total = page.total; offset += page.items.length; if (!page.items.length) break; } while (offset < total);
+  const items = await loadConversations(api, ctx.group, ctx.active);
+  if (!items) return el('div');
+  const total = items.length;
   const cache = await loadReviewIndex(api, items, { active: ctx.active });
   if (!ctx.active()) return el('div');
   const rubrics = (await api.rubrics()).items;
@@ -19,7 +22,7 @@ export async function conversationsPage(api, ctx) {
   let historyLoaded = false; let historyLoading = false;
   const scopeNotice = notice();
   const rubric = rubricPicker(rubrics, ctx.rubric); const info = notice();
-  const table = el('div', { className: 'table-scroll' }); const count = el('span', { className: 'tag' });
+  const table = el('div', { className: 'table-scroll', tabindex: '0', role: 'region', 'aria-label': 'Список диалогов' }); const count = el('span', { className: 'tag' });
   const update = () => {
     ctx.filters = { search: search.value, language: language.value, channel: channel.value, status: status.value, gross: gross.value };
     if (historyLoading) return;
@@ -35,7 +38,7 @@ export async function conversationsPage(api, ctx) {
         el('td', {}, el('a', { href: `#/conversations/${encodeURIComponent(c.group_id)}/${encodeURIComponent(c.conversation_id)}`, text: c.conversation_id })),
         el('td', {}, el('span', { className: 'tag', text: c.language }), el('span', { text: c.channel === 'voice call' ? '  Звонок' : '  Чат' })),
         el('td', { text: c.message_count }),
-        el('td', { text: ({ queued: 'В очереди', running: 'Выполняется', failed: 'Ошибка', completed: 'Завершено', unknown: 'Статус недоступен' })[c.latest_status] ?? 'Без оценки' }),
+        el('td', {}, el('span', { className: `tag status-${c.latest_status ?? 'none'}`, text: ({ queued: 'В очереди', running: 'Выполняется', failed: 'Ошибка', completed: 'Завершено', unknown: 'Статус недоступен' })[c.latest_status] ?? 'Без оценки' })),
         el('td', { className: 'score-small', text: formatScore(c.latest_score) }),
         el('td', {}, el('span', { className: `tag ${grossState(c) === 'yes' ? 'outcome-violation' : ''}`, text: ({ yes: 'Выявлено', no: 'Не выявлено', unassessed: 'Не оценено', unknown: 'Не удалось проверить' })[grossState(c)] ?? 'Не проверено' }),
           matches.length ? violationPreview(api, matches, cache, ['yes', 'history'].includes(gross.value)) : null));
@@ -68,6 +71,7 @@ export async function conversationsPage(api, ctx) {
     ctx.flash = `Импорт ${r.group_id}: всего ${r.total}, новых ${r.imported}, обновлено ${r.updated}, пропущено ${r.skipped}.`; ctx.reload();
   }, event.currentTarget));
   const batchConfirmation = el('div', { className: 'confirm', hidden: '' });
+  rubric.addEventListener('change', () => { ctx.rubric = rubric.value; batchConfirmation.hidden = true; });
   const batchButton = button('Оценить всю группу', () => paidConfirmation(batchConfirmation, `Создать платные AI-задания для всей группы ${ctx.group} (${total} диалогов)? Фильтры списка не ограничивают групповую оценку.`, 'Подтвердить групповую оценку', () => startBatch()));
   const startBatch = () => perform(info, 'Создание задания…', async () => {
     if (!rubric.value) throw new Error('Сначала создайте чек-лист.');
@@ -86,10 +90,19 @@ export async function conversationsPage(api, ctx) {
   });
   if (gross.value === 'history') { await loadGrossHistory(api, items, cache, ctx.active); historyLoaded = true; }
   update();
-  return el('section', {}, heading('ОБЗОР / ДИАЛОГИ', 'Каждый диалог имеет значение', 'Отберите обращения, запустите оценку и проверьте выводы по исходным репликам.'),
-    el('section', { className: 'card' }, el('div', { className: 'toolbar' }, field('Группа импорта', group), el('datalist', { id: 'groups' }, el('option', { value: 'DEV' }), el('option', { value: 'SYNTHETIC' })), button('Открыть группу', applyGroup, true), importButton),
+  const summary = summarizeConversations(items);
+  return el('section', {}, heading('РАБОЧЕЕ ПРОСТРАНСТВО / ДИАЛОГИ', 'Диалоги', 'Поиск обращений, оценка качества и проверка выводов по исходным сообщениям.'),
+    metricCards([
+      { label: 'Диалоги в группе', value: total, note: `Источник: ${ctx.group}` },
+      { label: 'Оценка завершена', value: summary.completed, note: `В работе: ${summary.pending} · Ошибок: ${summary.failed}` },
+      { label: 'Грубые нарушения', value: summary.violations, note: 'Показать диалоги →', tone: 'metric-alert', action: () => { gross.value = 'yes'; update(); table.scrollIntoView?.({ block: 'start' }); } },
+      { label: 'Без оценки', value: summary.unassessed, note: `Статус недоступен: ${summary.unknown}` },
+    ]),
+    el('section', { className: 'card operations-card' }, el('h2', { text: 'Источник данных и оценка' }),
+      el('div', { className: 'operations-grid' }, el('div', { className: 'toolbar' }, field('Группа импорта', group), el('datalist', { id: 'groups' }, el('option', { value: 'DEV' }), ...(api.mode === 'mock' ? [el('option', { value: 'SYNTHETIC' })] : [])), button('Открыть группу', applyGroup, true), importButton),
+        el('div', { className: 'toolbar' }, field('Чек-лист для оценки', rubric), batchButton)),
       el('details', { className: 'judge-help' }, el('summary', { text: 'Как оценить новый диалог?' }), el('p', { text: 'Введите ID контрольной группы организатора, импортируйте её и откройте новый диалог. Затем выберите чек-лист и запустите оценку.' }), el('p', { className: 'muted', text: 'Произвольная вставка или загрузка транскрипта пока не поддерживается API. Полная ссылка организатора в браузере не нужна.' })),
-      el('div', { className: 'toolbar' }, field('Чек-лист для оценки', rubric), batchButton), info, batchConfirmation),
+      info, batchConfirmation),
     el('section', { className: 'card list-card' }, el('div', { className: 'card-heading' }, el('h2', { text: 'Диалоги' }), count),
       el('div', { className: 'filters' }, field('Поиск', search), field('Язык', language), field('Канал', channel), field('Статус', status), field('Грубые нарушения', gross)), button('Сбросить фильтры', resetFilters, true), scopeNotice, table));
 }

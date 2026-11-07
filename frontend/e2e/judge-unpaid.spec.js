@@ -127,7 +127,7 @@ test('judge submits and upholds an appeal on an unreviewed real evaluation', asy
   await page.getByRole('button', { name: 'Отправить апелляцию' }).click();
   await expect(page.getByText('Апелляция отправлена.', { exact: false })).toBeVisible();
   await page.getByLabel('Роль', { exact: true }).selectOption('reviewer');
-  await page.getByRole('link', { name: '03 / Апелляции' }).click();
+  await page.getByRole('link', { name: 'Апелляции', exact: true }).click();
   await page.locator('.appeal-list button').filter({ hasText: comment }).click();
   await page.getByLabel('Обоснование ревьюера').fill('Техническая проверка сохранения решения: исходная AI-оценка оставлена без изменения. Это не независимая семантическая разметка.');
   await page.getByRole('button', { name: 'Сохранить решение' }).click();

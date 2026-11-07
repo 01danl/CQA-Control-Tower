@@ -1,6 +1,6 @@
 import { el } from '../components/dom.js';
-import { evaluationDetail, transcriptView } from '../components/evaluation.js';
-import { button, field, rubricPicker, rubricSelection, notice, perform, heading, paidConfirmation } from '../components/forms.js';
+import { evaluationDetail, transcriptView, conversationHeading } from '../components/evaluation.js';
+import { button, field, rubricPicker, rubricSelection, notice, perform, paidConfirmation } from '../components/forms.js';
 export async function reviewPage(api, ctx, { group, id, evaluationId }) {
   let evaluation = evaluationId ? await api.evaluation(evaluationId) : null;
   group = evaluation?.group_id ?? group; id = evaluation?.conversation_id ?? id;
@@ -26,10 +26,10 @@ export async function reviewPage(api, ctx, { group, id, evaluationId }) {
       }
     }, control));
   });
-  picker.addEventListener('change', () => { confirmation.hidden = true; });
-  const toolbar = el('section', { className: 'card' }, el('div', { className: 'toolbar' }, field('Применить чек-лист', picker), run), state, confirmation,
+  picker.addEventListener('change', () => { ctx.rubric = picker.value; confirmation.hidden = true; });
+  const toolbar = el('section', { className: 'card analysis-toolbar' }, el('div', { className: 'toolbar' }, field('Применить чек-лист', picker), run), state, confirmation,
     el('div', { className: 'history' }, el('span', { className: 'muted', text: 'История: ' }), ...history.items.map((e) => el('a', { href: `#/evaluations/${encodeURIComponent(e.evaluation_id)}`, text: `${e.rubric_id} · v${e.rubric_version} · ${e.evaluation_id.slice(0, 8)} · ${e.status} · ${e.created_at ?? ''}` }))));
-  const page = el('section', {}, toolbar);
+  const page = el('section');
   const resultPanel = el('div'); page.append(resultPanel);
   async function showEvaluation(evaluation) {
     const rubric = evaluation.rubric_snapshot ?? await api.rubric(evaluation.rubric_id, evaluation.rubric_version);
@@ -39,7 +39,7 @@ export async function reviewPage(api, ctx, { group, id, evaluationId }) {
       form.querySelector('select').value = id;
       form.scrollIntoView?.({ block: 'center' }); form.querySelector('textarea').focus();
     } : undefined;
-    resultPanel.replaceChildren(evaluationDetail(evaluation, evaluation.conversation_snapshot ?? conversation, rubric, { onAppeal }));
+    resultPanel.replaceChildren(evaluationDetail(evaluation, evaluation.conversation_snapshot ?? conversation, rubric, { onAppeal, controls: toolbar }));
     run.disabled = ['queued', 'running'].includes(evaluation.status); picker.disabled = run.disabled;
     run.textContent = evaluation.status === 'failed' ? 'Повторить оценку' : 'Оценить диалог';
     if (evaluation.status === 'completed' && ctx.role === 'operator') {
@@ -72,6 +72,7 @@ export async function reviewPage(api, ctx, { group, id, evaluationId }) {
         }
       }; ctx.later(poll);
     }
-  } else page.append(heading('ПРОВЕРКА / ДИАЛОГ', id, 'Оценка ещё не запускалась. Выберите чек-лист и начните проверку.'), transcriptView(conversation));
+  } else resultPanel.append(conversationHeading(conversation), toolbar,
+    el('div', { className: 'detail-grid' }, transcriptView(conversation), el('section', { className: 'card empty evaluation-empty' }, el('h2', { text: 'Оценка качества' }), el('p', { text: 'Оценка ещё не запускалась.' }), el('p', { className: 'muted', text: 'Выберите чек-лист выше и запустите проверку. Здесь появятся итоговый балл, критерии и доказательства из диалога.' }))));
   return page;
 }

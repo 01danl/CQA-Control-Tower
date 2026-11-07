@@ -32,7 +32,8 @@ export async function perform(node, message, action, control) {
   finally { busy.delete(node); if (control) control.disabled = false; }
 }
 export function rubricPicker(rubrics, selected) {
-  return select(rubrics.map((r) => [`${r.rubric_id}|${r.version}`, `${r.name ?? r.rubric_id} · v${r.version}`]), selected);
+  const defaultRubric = rubrics.find((r) => r.rubric_id === 'default');
+  return select(rubrics.map((r) => [`${r.rubric_id}|${r.version}`, `${r.name ?? r.rubric_id} · v${r.version}`]), selected ?? (defaultRubric ? `${defaultRubric.rubric_id}|${defaultRubric.version}` : undefined));
 }
 export function rubricSelection(control) {
   const [rubric_id, version] = control.value.split('|');

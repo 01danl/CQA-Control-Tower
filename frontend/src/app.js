@@ -4,11 +4,14 @@ import { conversationsPage } from './pages/conversations.js';
 import { reviewPage } from './pages/review.js';
 import { rubricsPage } from './pages/rubrics.js';
 import { appealsPage } from './pages/appeals.js';
+import { analyticsPage } from './pages/analytics.js';
+import { icon } from './components/icons.js';
 
 export function mountApp(root, api, windowObject = window) {
   let sequence = 0; let disposed = false; const timers = new Set();
   const content = el('main', { id: 'cqa-content', tabindex: '-1' });
   const health = el('span', { className: 'health', text: 'API: проверка…', role: 'status' });
+  const breadcrumb = el('span', { className: 'breadcrumb', text: 'Контроль качества / Диалоги' });
   let saved = {};
   const preferenceKey = `cqa-ui-${api.mode}`;
   try { saved = JSON.parse(windowObject.sessionStorage.getItem(preferenceKey) ?? '{}') ?? {}; } catch { /* Private browsing may disable storage. */ }
@@ -21,14 +24,14 @@ export function mountApp(root, api, windowObject = window) {
   role.addEventListener('change', () => { ctx.role = role.value; render(); });
   root.replaceChildren(el('div', { className: 'shell' },
     el('a', { href: '#cqa-content', className: 'skip-link', text: 'К содержимому' }),
-    el('aside', { className: 'sidebar' }, el('a', { className: 'brand', href: '#/conversations' }, el('span', { className: 'brand-mark', text: 'CQ' }), el('span', { text: 'CQA\nControl Tower' })),
+    el('aside', { className: 'sidebar' }, el('a', { className: 'brand', href: '#/conversations' }, el('span', { className: 'brand-mark', text: 'CQA' }), el('span', {}, el('strong', { text: 'Control Tower' }), el('small', { text: 'Conversation quality' }))),
       el('p', { className: 'nav-label', text: 'КАЧЕСТВО СЕРВИСА' }), el('nav', { 'aria-label': 'Основная навигация' },
-        ...[['conversations', '01 / Диалоги'], ['rubrics', '02 / Чек-листы'], ['appeals', '03 / Апелляции']].map(([path, text]) => el('a', { className: 'nav-link', href: `#/${path}`, text }))),
-      el('p', { className: 'sidebar-note', text: 'Каждый вывод —\nс опорой на реплику.\n\nRU / KZ / EN' })),
-    el('div', { className: 'workspace' }, el('header', { className: 'topbar' }, el('span', { text: 'Рабочее пространство / Контроль качества' }), el('div', { className: 'topbar-actions' }, health, field('Роль', role), button('Обновить', () => { checkHealth(); render(); }, true))),
-      el('div', { className: 'mode-banner', role: 'note', text: api.mode === 'mock' ? 'DEV / MOCK — синтетические данные и демонстрация состояний. Не результат LLM.' : 'LIVE API — данные и оценки backend' }), content)));
+        ...[['conversations', 'Диалоги'], ['rubrics', 'Чек-листы'], ['appeals', 'Апелляции'], ['analytics', 'Аналитика']].map(([path, text]) => el('a', { className: 'nav-link', href: `#/${path}` }, icon(path), el('span', { text })))),
+      el('div', { className: 'sidebar-note' }, el('span', { className: 'sidebar-note-label', text: 'ПРОВЕРЯЕМОЕ КАЧЕСТВО' }), el('p', { text: 'От оценки к исходной реплике' }), el('span', { text: 'RU · KZ · EN' }))),
+    el('div', { className: 'workspace' }, el('header', { className: 'topbar' }, breadcrumb, el('div', { className: 'topbar-actions' }, health, field('Роль', role), button('Обновить', () => { checkHealth(); render(); }, true))),
+      el('div', { className: `mode-banner ${api.mode === 'live' ? 'mode-live' : ''}`, role: 'note', text: api.mode === 'mock' ? 'DEV / MOCK — синтетические данные и демонстрация состояний. Не результат LLM.' : 'LIVE API — данные и оценки backend' }), content)));
   root.querySelector('.skip-link').addEventListener('click', (e) => { e.preventDefault(); content.focus(); });
-  async function checkHealth() { try { await api.health(); if (!disposed) health.textContent = '● API и БД доступны'; } catch { if (!disposed) health.textContent = '○ API / БД недоступны'; } }
+  async function checkHealth() { try { await api.health(); if (!disposed) { health.textContent = '● API и БД доступны'; health.dataset.state = 'ready'; } } catch { if (!disposed) { health.textContent = '○ API / БД недоступны'; health.dataset.state = 'error'; } } }
   async function render() {
     persistPreferences();
     const run = ++sequence; timers.forEach(clearTimeout); timers.clear();
@@ -37,18 +40,22 @@ export function mountApp(root, api, windowObject = window) {
     // Shared selections survive page changes; render-specific guards stop stale polling.
     const pageCtx = new Proxy(localCtx, { set: (_target, key, value) => { ctx[key] = value; persistPreferences(); return true; } });
     Object.assign(localCtx, { active, later: (fn) => { if (!active()) return; const timer = setTimeout(() => { timers.delete(timer); if (active()) fn(); }, 1200); timers.add(timer); } });
-    content.setAttribute('aria-busy', 'true'); content.replaceChildren(el('p', { text: 'Загрузка…', role: 'status' }));
+    content.setAttribute('aria-busy', 'true'); content.replaceChildren(el('section', { className: 'card loading-state', role: 'status' }, el('span', { className: 'loading-indicator', 'aria-hidden': 'true' }), el('h2', { text: 'Загрузка данных' }), el('p', { className: 'muted', text: 'Получаем данные из API…' })));
     const route = windowObject.location.hash || '#/conversations';
-    root.querySelectorAll('.nav-link').forEach((n) => { if (route.startsWith(n.getAttribute('href'))) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
+    root.querySelectorAll('.nav-link').forEach((n) => { if (route.startsWith(n.getAttribute('href')) || (route.startsWith('#/evaluations/') && n.getAttribute('href') === '#/conversations')) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
     try {
       const [path, query] = route.slice(2).split('?');
       const params = new URLSearchParams(query);
       let view; const parts = path.split('/').map(decodeURIComponent);
+      const pageName = ({ conversations: parts.length > 1 ? 'Анализ разговора' : 'Диалоги', evaluations: 'Анализ разговора', rubrics: 'Чек-листы', appeals: 'Апелляции', analytics: 'Аналитика' })[parts[0]] ?? 'Страница не найдена';
+      breadcrumb.textContent = `Контроль качества / ${pageName}`;
+      document.title = `${pageName} · CQA Control Tower`;
       if (parts[0] === 'conversations' && parts.length === 1) view = await conversationsPage(api, pageCtx);
       else if (parts[0] === 'conversations' && parts.length === 3) view = await reviewPage(api, pageCtx, { group: parts[1], id: parts[2] });
       else if (parts[0] === 'evaluations' && parts[1]) view = await reviewPage(api, pageCtx, { evaluationId: parts[1] });
       else if (parts[0] === 'rubrics') view = await rubricsPage(api, pageCtx);
       else if (parts[0] === 'appeals') view = await appealsPage(api, pageCtx);
+      else if (parts[0] === 'analytics') view = await analyticsPage(api, pageCtx);
       else view = el('section', { className: 'card', text: 'Страница не найдена' }, el('a', { href: '#/conversations', text: 'Все диалоги' }));
       if (active()) { content.replaceChildren(view);
         const criterion = [...content.querySelectorAll('.criterion')].find((n) => n.dataset.criterionId === params.get('criterion'));
