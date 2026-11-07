@@ -9,9 +9,15 @@ export function mountApp(root, api, windowObject = window) {
   let sequence = 0; let disposed = false; const timers = new Set();
   const content = el('main', { id: 'cqa-content', tabindex: '-1' });
   const health = el('span', { className: 'health', text: 'API: проверка…', role: 'status' });
+  let saved = {};
+  const preferenceKey = `cqa-ui-${api.mode}`;
+  try { saved = JSON.parse(windowObject.sessionStorage.getItem(preferenceKey) ?? '{}') ?? {}; } catch { /* Private browsing may disable storage. */ }
   const role = select([['operator', 'Operator'], ['reviewer', 'Reviewer']]);
-  const ctx = { group: api.mode === 'mock' ? 'SYNTHETIC' : 'DEV', role: 'operator', reload: render,
+  const ctx = { group: api.mode === 'mock' ? 'SYNTHETIC' : 'DEV', role: saved.role === 'reviewer' ? 'reviewer' : 'operator', filters: saved.filters, rubric: saved.rubric, reload: render,
     navigate: (route) => { if (windowObject.location.hash === route) render(); else windowObject.location.hash = route; } };
+  if (/^[A-Za-z0-9_-]{1,100}$/.test(saved.group ?? '')) ctx.group = saved.group;
+  role.value = ctx.role;
+  const persistPreferences = () => { try { windowObject.sessionStorage.setItem(preferenceKey, JSON.stringify({ group: ctx.group, role: ctx.role, rubric: ctx.rubric, filters: ctx.filters })); } catch { /* Keep in-memory state. */ } };
   role.addEventListener('change', () => { ctx.role = role.value; render(); });
   root.replaceChildren(el('div', { className: 'shell' },
     el('a', { href: '#cqa-content', className: 'skip-link', text: 'К содержимому' }),
@@ -24,11 +30,12 @@ export function mountApp(root, api, windowObject = window) {
   root.querySelector('.skip-link').addEventListener('click', (e) => { e.preventDefault(); content.focus(); });
   async function checkHealth() { try { await api.health(); if (!disposed) health.textContent = '● API и БД доступны'; } catch { if (!disposed) health.textContent = '○ API / БД недоступны'; } }
   async function render() {
+    persistPreferences();
     const run = ++sequence; timers.forEach(clearTimeout); timers.clear();
     const active = () => !disposed && run === sequence;
     const localCtx = Object.create(ctx);
     // Shared selections survive page changes; render-specific guards stop stale polling.
-    const pageCtx = new Proxy(localCtx, { set: (_target, key, value) => { ctx[key] = value; return true; } });
+    const pageCtx = new Proxy(localCtx, { set: (_target, key, value) => { ctx[key] = value; persistPreferences(); return true; } });
     Object.assign(localCtx, { active, later: (fn) => { if (!active()) return; const timer = setTimeout(() => { timers.delete(timer); if (active()) fn(); }, 1200); timers.add(timer); } });
     content.setAttribute('aria-busy', 'true'); content.replaceChildren(el('p', { text: 'Загрузка…', role: 'status' }));
     const route = windowObject.location.hash || '#/conversations';

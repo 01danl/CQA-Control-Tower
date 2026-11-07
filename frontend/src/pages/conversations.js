@@ -11,13 +11,16 @@ export async function conversationsPage(api, ctx) {
   if (!ctx.active()) return el('div');
   const rubrics = (await api.rubrics()).items;
   const group = input(ctx.group); group.setAttribute('list', 'groups'); group.maxLength = 100;
-  const search = input(); search.placeholder = 'Найти по ID диалога';
+  const savedFilters = ctx.filters ?? {};
+  const search = input(savedFilters.search ?? ''); search.placeholder = 'Найти по ID диалога';
   const language = select([['', 'Все языки'], 'RU', 'KZ', 'EN']);
   const channel = select([['', 'Все каналы'], ['agent chat', 'Чат'], ['voice call', 'Звонок']]);
   const status = select([['', 'Все статусы'], ['completed', 'Завершено'], ['failed', 'Ошибка'], ['running', 'Выполняется'], ['queued', 'В очереди'], ['none', 'Без оценки'], ['unknown', 'Статус недоступен']]);
+  for (const [key, control] of Object.entries({ language, channel, status })) control.value = savedFilters[key] ?? '';
   const rubric = rubricPicker(rubrics, ctx.rubric); const info = notice();
   const table = el('div', { className: 'table-scroll' }); const count = el('span', { className: 'tag' });
   const update = () => {
+    ctx.filters = { search: search.value, language: language.value, channel: channel.value, status: status.value };
     const filtered = items.filter((c) => c.conversation_id.toLowerCase().includes(search.value.toLowerCase()) && (!language.value || c.language === language.value) && (!channel.value || c.channel === channel.value) && (!status.value || (c.latest_status ?? (c.latest_evaluation_id ? 'completed' : 'none')) === status.value));
     count.textContent = `${filtered.length} из ${total}`;
     table.replaceChildren(filtered.length ? el('table', {}, el('caption', { className: 'sr-only', text: 'Диалоги группы' }), el('thead', {}, el('tr', {}, ...['Диалог', 'Язык / канал', 'Реплики', 'Статус', 'Балл / 100'].map((text) => el('th', { scope: 'col', text })))), el('tbody', {}, ...filtered.map((c) => el('tr', {},
@@ -26,9 +29,9 @@ export async function conversationsPage(api, ctx) {
       el('td', { text: ({ queued: 'В очереди', running: 'Выполняется', failed: 'Ошибка', completed: 'Завершено', unknown: 'Статус недоступен' })[c.latest_status] ?? (c.latest_evaluation_id ? 'Есть оценка' : 'Без оценки') }), el('td', { className: 'score-small', text: formatScore(c.latest_score) }))))) : el('p', { className: 'empty', text: 'Диалоги не найдены. Измените фильтры или импортируйте группу.' }));
   };
   [search, language, channel, status].forEach((c) => c.addEventListener('input', update));
-  const applyGroup = () => { const value = group.value.trim(); if (!value || /[/?=&]/.test(value)) { info.textContent = 'Введите ID группы, например DEV или CONTROL. URL не требуется.'; return; } ctx.group = value; ctx.reload(); };
+  const applyGroup = () => { const value = group.value.trim(); if (!/^[A-Za-z0-9_-]{1,100}$/.test(value)) { info.textContent = 'Введите ID группы, например DEV или CONTROL. URL не требуется.'; return; } ctx.group = value; ctx.reload(); };
   const importButton = button('Импортировать группу', (event) => perform(info, 'Импорт выполняется…', async () => {
-    const value = group.value.trim(); if (!value || /[/?=&]/.test(value)) throw new Error('Укажите только ID группы, без URL.');
+    const value = group.value.trim(); if (!/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error('Укажите только ID группы, без URL.');
     const r = await api.importGroup(value); ctx.group = value;
     ctx.flash = `Импорт ${r.group_id}: всего ${r.total}, новых ${r.imported}, обновлено ${r.updated}, пропущено ${r.skipped}.`; ctx.reload();
   }, event.currentTarget));
@@ -41,7 +44,7 @@ export async function conversationsPage(api, ctx) {
     const poll = async () => {
       try { const b = await api.batch(receipt.batch_id); if (!ctx.active()) return;
         info.replaceChildren(el('span', { text: `${b.status} · завершено ${b.completed}/${b.total} · ошибок ${b.failed} · осталось ${b.pending}` }), el('progress', { max: b.total || 1, value: b.completed + b.failed, 'aria-label': 'Прогресс групповой оценки' }),
-          ...(b.errors ?? []).map((e) => el('p', { text: typeof e === 'string' ? e : JSON.stringify(e) })));
+          ...(b.items?.filter((item) => item.error).map((item) => `${item.conversation_id}: ${item.error.code} — ${item.error.message}`) ?? b.errors ?? []).map((e) => el('p', { text: typeof e === 'string' ? e : JSON.stringify(e) })));
         if (['queued', 'running'].includes(b.status)) ctx.later(poll); else { batchButton.disabled = false; info.append(button('Обновить результаты', ctx.reload, true)); }
       } catch (e) { if (ctx.active()) { info.textContent = e.message; info.append(button('Повторить проверку задания', poll, true)); } }
     }; await poll();

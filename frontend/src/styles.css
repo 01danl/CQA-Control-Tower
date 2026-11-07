@@ -111,3 +111,8 @@ html, body { margin: 0; min-width: 320px; }
 #cqa-app .skip-link:focus { top: 10px; }
 @media (max-width: 1000px) { #cqa-app .detail-grid > .transcript, #cqa-app .detail-grid > .card:not(.transcript) { grid-column: auto; grid-row: auto; } #cqa-app .filters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 680px) { #cqa-app .sidebar { flex-wrap: wrap; } #cqa-app nav { display: flex; flex-wrap: wrap; } #cqa-app .form-grid, #cqa-app .filters { grid-template-columns: 1fr; } #cqa-app .topbar-actions { flex-wrap: wrap; } #cqa-app .score-strip { flex-wrap: wrap; } }
+#cqa-app .detail-grid > * { min-width: 0; }
+#cqa-app .criterion, #cqa-app .evidence, #cqa-app .history, #cqa-app .audit { overflow-wrap: anywhere; }
+#cqa-app .message-text { white-space: pre-wrap; }
+#cqa-app .audit { margin-top: 22px; font-size: 13px; }
+#cqa-app .audit summary { cursor: pointer; font-weight: 650; }
