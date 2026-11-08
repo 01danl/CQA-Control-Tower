@@ -1,5 +1,9 @@
 # Organizer JSON submission runbook
 
+> Current model/settings (2026-11-08): Flash 0731, 32,000 output tokens.
+> See [MODEL_SWITCH_0731.md](MODEL_SWITCH_0731.md) for the new approval-gated plan;
+> older model/run examples below are historical and must not be executed unchanged.
+
 **Current execution state:** [DEV_RUN_RESULTS.md](DEV_RUN_RESULTS.md) records the
 subsequent authorized run: 6 total ok / 59 error after a safe stop. The earlier
 1-ok/64-error artifact/hash in the implementation-verification section is historical.

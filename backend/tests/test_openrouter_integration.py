@@ -29,7 +29,7 @@ def test_generic_private_env_names_and_blank_model_use_requested_flash(tmp_path)
     settings = Settings(_env_file=env)
     assert settings.openai_api_key.get_secret_value() == "synthetic-key"
     assert settings.openai_base_url == "https://openrouter.ai/api/v1"
-    assert settings.llm_model == "deepseek/deepseek-v4.1-flash"
+    assert settings.llm_model == "deepseek/deepseek-v4-flash-0731"
     assert "synthetic-key" not in repr(settings)
 
 
@@ -44,7 +44,7 @@ def test_legacy_openai_names_remain_supported(monkeypatch):
 def test_openrouter_request_preserves_schema_and_observed_cost(session, settings):
     settings.openai_base_url = "https://openrouter.ai/api/v1"
     settings.openai_api_key = SecretStr("synthetic-key")
-    settings.llm_model = "deepseek/deepseek-v4.1-flash"
+    settings.llm_model = "deepseek/deepseek-v4-flash-0731"
     import_dataset(session, "DEV", parse_dataset(dataset_payload()))
     conversation = conversation_detail(get_conversation(session, "DEV", "synthetic-0"))
     rubric = get_rubric(session, "default", 1)
@@ -73,7 +73,7 @@ def test_openrouter_request_preserves_schema_and_observed_cost(session, settings
     )
     assert calls[0]["provider"] == {"require_parameters": True}
     assert calls[0]["response_format"]["json_schema"]["schema"] == provider_output_schema(rubric)
-    assert calls[0]["max_tokens"] == 8192 and "max_completion_tokens" not in calls[0]
+    assert calls[0]["max_tokens"] == 32000 and "max_completion_tokens" not in calls[0]
     assert calls[0]["usage"] == {"include": True}
     assert reply.reported_cost_usd == Decimal(".000041")
     usage = usage_summary([reply], settings)
@@ -106,5 +106,5 @@ def test_returned_dataset_group_must_match_requested_group(settings):
 def test_placeholder_example_uses_generic_names_without_secrets():
     values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.example")
     assert values["LLM_API_KEY"] == values["CQA_DATASET_URL"] == ""
-    assert values["LLM_MODEL"] == "deepseek/deepseek-v4.1-flash"
+    assert values["LLM_MODEL"] == "deepseek/deepseek-v4-flash-0731"
     assert values["LLM_BASE_URL"] == "https://openrouter.ai/api/v1"

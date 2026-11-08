@@ -25,7 +25,7 @@ from app.repository import conversation_detail
 from app.rubrics import get_rubric
 from app.scoring import score_evaluation
 
-MODEL = "deepseek/deepseek-v4.1-flash"
+MODEL = "deepseek/deepseek-v4-flash-0731"
 MAPPING = dict(
     zip(
         (f"C0{i}" for i in range(1, 9)),

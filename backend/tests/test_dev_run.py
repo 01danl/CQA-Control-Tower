@@ -26,6 +26,32 @@ class SyntheticProvider(TestProvider):
         )
 
 
+@pytest.fixture(autouse=True)
+def isolated_billing_archive(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "BILLING_ARCHIVE_DIR", tmp_path)
+
+
+def test_reset_receipts_preserve_known_and_unknown_costs(session, tmp_path):
+    import json
+
+    (tmp_path / "billing-before-reset-test.json").write_text(json.dumps({"receipts": [
+        {"evaluation_id": "deleted-known", "cost_unknown": False,
+         "recorded_cost_usd": ".42"},
+        {"evaluation_id": "deleted-interrupted", "cost_unknown": True,
+         "recorded_cost_usd": None},
+    ]}))
+    result = run.ledger(session, [])
+    assert Decimal(result["known_spend_usd"]) == Decimal(".42")
+    assert result["unknown_charge_ids"] == ["deleted-interrupted"]
+    assert result["recorded_jobs"] == 2
+
+
+def test_corrupt_reset_accounting_stops_budget_planning(session, tmp_path):
+    (tmp_path / "billing-before-reset-test.json").write_text('{"receipts":null}')
+    with pytest.raises(run.RunError, match="RESET_BILLING_ARCHIVE_INVALID_STOP"):
+        run.ledger(session, [])
+
+
 @pytest.fixture
 def prepared(session, engine, settings, monkeypatch):
     seed(session)
@@ -38,6 +64,7 @@ def prepared(session, engine, settings, monkeypatch):
     }
     session.commit()
     settings.llm_model = run.MODEL
+    settings.llm_max_output_tokens = 8192  # Historical run fixture, not production defaults.
     settings.openai_base_url = "https://openrouter.ai/api/v1"
     settings.openai_api_key = SecretStr("synthetic-key")
     monkeypatch.setattr(run, "backend_is_up", lambda: False)
@@ -261,6 +288,24 @@ def test_archived_plan_can_be_replanned_after_code_fix_but_not_executed(prepared
     archive["team"] = "tampered"
     with pytest.raises(run.RunError, match="TAMPERED"):
         run.prepare(session, settings, plan["prices"], parent=archive)
+
+
+def test_model_switch_preserves_history_cost_and_rejects_old_model_reuse(prepared, session):
+    plan, _, settings = prepared
+    old = session.scalar(select(m.Evaluation))
+    old_model = "deepseek/deepseek-v4.1-flash"
+    old.usage = {**old.usage, "model": old_model}
+    session.commit()
+    archive = deepcopy(plan)
+    archive["model"] = old_model
+    archive["plan_hash"] = run.digest({k: v for k, v in archive.items() if k != "plan_hash"})
+    with pytest.raises(run.RunError, match="INVALID_PLAN_IDENTITY"):
+        run.verify(archive, settings)
+    fresh = run.prepare(session, settings, plan["prices"], parent=archive)
+    assert fresh["model"] == run.MODEL
+    assert all(case["reuse_id"] is None for case in fresh["cases"])
+    assert Decimal(fresh["prior_known_spend_usd"]) == Decimal(".001")
+    assert session.scalar(select(func.count()).select_from(m.Evaluation)) == 1
 
 
 def test_explicit_pilot_bills_only_selected_missing_sources_and_includes_prior_cost(

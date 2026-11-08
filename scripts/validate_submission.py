@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 TEAM = "bda2402"
-MODEL = "deepseek/deepseek-v4.1-flash"
+MODEL = "deepseek/deepseek-v4-flash-0731"
 OFFICIAL_FIELDS = {
     "records_key": "results",
     "criterion_id_key": "criterion_id",

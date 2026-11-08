@@ -1,5 +1,9 @@
 # Safe DEV continuation — explicit approval required
 
+> Current model/settings (2026-11-08): Flash 0731, 32,000 output tokens.
+> See [MODEL_SWITCH_0731.md](MODEL_SWITCH_0731.md) for the new approval-gated plan;
+> older model/run examples below are historical and must not be executed unchanged.
+
 Current state: 9 reusable successes; 55 missing + 1 failed. No new paid call in the
 reliability fix. The production model and reasoning effort stay unchanged. Maximum
 combined budget target is $3 including $0.076380731 already recorded (DB-verified

@@ -38,7 +38,7 @@ def submission(count=1):
     return {
         "schema_version": "1.0",
         "team_name": "bda2402",
-        "model": {"mode": "external_api", "name": "deepseek/deepseek-v4.1-flash"},
+        "model": {"mode": "external_api", "name": "deepseek/deepseek-v4-flash-0731"},
         "results": [record(i) for i in range(count)],
     }
 

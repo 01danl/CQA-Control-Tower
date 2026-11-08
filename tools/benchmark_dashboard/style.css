@@ -1,0 +1,94 @@
+:root {
+  --bg: #0f1218;
+  --panel: #171c26;
+  --panel-2: #1e2532;
+  --text: #dce3ee;
+  --muted: #8794a8;
+  --accent: #4da3ff;
+  --ok: #3ecf8e;
+  --bad: #ff6b6b;
+  --warn: #f5c451;
+  --border: #2a3140;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+h1 { font-size: 17px; margin: 0; }
+.controls { display: flex; align-items: center; gap: 10px; }
+.meta { color: var(--muted); font-size: 12px; }
+.tabs { display: flex; gap: 4px; padding: 10px 20px 0; }
+.tabs button {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  padding: 8px 16px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+}
+.tabs button.active { color: var(--text); background: var(--panel-2); }
+.tab { display: none; padding: 16px 20px; }
+.tab.active { display: block; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card.baseline { border-style: dashed; }
+.card h3 { margin: 0 0 4px; font-size: 14px; color: var(--accent); }
+.card .k { color: var(--muted); font-size: 11px; margin-bottom: 8px; word-break: break-all; }
+.filters { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+select, button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+}
+button { cursor: pointer; }
+button:hover, select:hover { border-color: var(--accent); }
+table.grid { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+table.grid th, table.grid td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.grid th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tr.status-failed td:nth-child(6) { color: var(--bad); }
+tr.status-completed td:nth-child(6) { color: var(--ok); }
+.note { color: var(--muted); font-size: 12px; }
+.sb-header { display: flex; gap: 18px; margin: 10px 0; flex-wrap: wrap; background: var(--panel); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); }
+.link { background: none; border: none; color: var(--accent); padding: 0; text-decoration: underline; font: inherit; }
+dialog {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(1100px, 95vw);
+  height: min(800px, 92vh);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.dialog-head h2 { margin: 0; font-size: 16px; }
+.d-summary { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+.d-summary .err { color: var(--bad); }
+.dialog-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 16px; height: calc(100% - 120px); }
+.d-results { overflow: auto; }
+.d-transcript { overflow: auto; background: var(--panel); border-radius: 8px; padding: 8px; }
+.rationale { max-width: 420px; font-size: 12px; color: var(--muted); }
+.turn { padding: 4px 8px; border-radius: 6px; margin-bottom: 2px; }
+.turn .idx { color: var(--muted); display: inline-block; min-width: 26px; }
+.turn .speaker { color: var(--accent); font-weight: 600; margin-right: 6px; }
+.turn.speaker-bot .speaker, .turn.speaker-system .speaker { color: var(--warn); }
+.turn.speaker-client .speaker { color: #c792ea; }
+.turn.focus { outline: 2px solid var(--warn); background: var(--panel-2); }
+footer { display: flex; gap: 10px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--border); }
+footer .meta { margin-left: auto; }
+@media (max-width: 900px) { .dialog-body { grid-template-columns: 1fr; } }

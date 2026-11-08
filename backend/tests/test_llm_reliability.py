@@ -21,6 +21,7 @@ from tests.test_evidence_evaluation import seed_run
 
 def adapter(settings, handler):
     settings.openai_api_key = SecretStr("synthetic-key")
+    settings.llm_max_output_tokens = 8192  # Reproduce the historical exhaustion boundary.
     settings.llm_model = "deepseek/deepseek-v4.1-flash"
     settings.openai_base_url = "https://openrouter.ai/api/v1"
     return OpenAIProvider(settings, transport=httpx.MockTransport(handler), sleep=lambda _: None)
@@ -223,8 +224,10 @@ def test_reasoning_effort_is_opt_in_and_request_latency_is_measured(session, set
 class NoneConversation:
     """Minimal synthetic adapter input; no transcript or external service."""
 
+    language = "EN"
+
     def model_dump(self, **kwargs):
-        return {"transcript": []}
+        return {"language": self.language, "transcript": []}
 
 
 def test_timeout_remains_unknown_cost_and_records_request_duration(session, engine, settings):

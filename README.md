@@ -1,89 +1,243 @@
-# CQA Control Tower
+<div align="center">
 
-Freedom Broker conversation quality review: FastAPI, SQLAlchemy, Alembic, PostgreSQL;
-HTML/CSS/Vanilla JavaScript + Vite. Includes versioned rubrics, real dataset/LLM adapters,
-verified evidence, deterministic scoring, appeals and audit history. No React or TypeScript.
-See [live integration report](docs/LIVE_INTEGRATION_REPORT.md) for actual execution evidence.
+# bda2402 · CQA Control Tower
 
-## Cold start (one command)
+**Контроль качества диалогов с ИИ, проверяемыми доказательствами и прозрачной оценкой.**
 
-Prerequisites: Docker Desktop/Engine running and Docker Compose 2.24+; first build needs
-internet. Run from the repository root:
+Проект команды **bda2402** для Freedom Broker Hackathon.
+
+<p>
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&amp;logo=python&amp;logoColor=white" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&amp;logo=fastapi&amp;logoColor=white" />
+  <img alt="PostgreSQL 16" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&amp;logo=postgresql&amp;logoColor=white" />
+  <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&amp;logo=docker&amp;logoColor=white" />
+</p>
+<p>
+  <img alt="HTML5" src="https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&amp;logo=html5&amp;logoColor=white" />
+  <img alt="CSS" src="https://img.shields.io/badge/CSS-663399?style=for-the-badge&amp;logo=css&amp;logoColor=white" />
+  <img alt="Vanilla JavaScript" src="https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=for-the-badge&amp;logo=javascript&amp;logoColor=black" />
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&amp;logo=vite&amp;logoColor=white" />
+</p>
+
+**RU · KZ · EN** &nbsp; · &nbsp; **8 начальных критериев** &nbsp; · &nbsp; **Чаты и расшифровки звонков**
+
+[Возможности](#возможности) · [Скриншоты](#скриншоты) · [Быстрый запуск](#быстрый-запуск) · [Разработка](#локальная-разработка) · [Документация](#документация)
+
+</div>
+
+---
+
+## О проекте
+
+**CQA Control Tower** помогает разбирать качество работы операторов: импортирует
+диалоги, оценивает их по версионируемому чек-листу и связывает каждый вывод ИИ
+с конкретными репликами. Ревьюер может проверить доказательства, рассмотреть
+апелляцию и пересчитать результат после решения по отдельному критерию.
+
+ИИ определяет значения критериев и приводит обоснования. Итоговый балл вычисляет
+детерминированный код. Действия бота и системные сообщения учитываются как контекст;
+оцениваются действия оператора.
+
+## Возможности
+
+| | Что умеет приложение |
+|---|---|
+| 💬 **Диалоги** | Импорт по `group_id`, список разговоров, фильтры по языку, каналу, статусу и грубым нарушениям. Повторный импорт не создаёт дубликаты. |
+| 🔎 **Доказательства** | Точные цитаты, ссылки на реплики и переход к исходному фрагменту. Для отсутствующего действия указывается проверенный диапазон разговора. |
+| 🧮 **Оценка** | Веса, числовые шкалы, N/A и отдельный флаг грубой ошибки. Объяснениям ИИ задан язык разговора: русский, казахский или английский. |
+| 📝 **Чек-листы** | Редактирование критериев, весов и правил применимости; сохранение версий и снимка чек-листа для каждой оценки. |
+| ⚖️ **Апелляции** | Комментарий к критерию, решение ревьюера, исходная оценка ИИ и итог после пересмотра. |
+| 📊 **Аналитика и задания** | Статусы оценок, пакетная обработка, учёт токенов, времени и доступной стоимости запросов. |
+| 📦 **Отправка организаторам** | Экспорт сохранённых AI-предсказаний в JSON и независимая проверка формата и баллов. |
+
+## Скриншоты
+
+### Рабочее пространство и обзор DEV
+
+Сводка по диалогам, прогресс оценки, импорт группы и фильтры в главном окне приложения.
+
+![Главное рабочее пространство: обзор DEV, прогресс оценки и управление группой](screens/Screenshot%202026-11-08%20at%2010.55.36%E2%80%AFAM.jpg)
+
+### Карточка диалога и оценка качества
+
+Расшифровка, итоговый балл, значения критериев и цитаты из разговора в одном окне.
+
+![Карточка диалога: расшифровка, итоговый балл и доказательства](screens/Screenshot%202026-11-08%20at%2010.35.56%E2%80%AFAM.jpg)
+
+<details>
+<summary><strong>Критерий консультации и отметка о проверке человеком</strong></summary>
+
+Обоснование отдельного критерия, исходные реплики и переход к апелляции.
+
+![Критерий C04 с доказательствами и отметкой о ручной проверке](screens/Screenshot%202026-11-08%20at%2010.48.12%E2%80%AFAM.jpg)
+
+</details>
+
+<details>
+<summary><strong>Фильтрация диалогов с грубыми нарушениями</strong></summary>
+
+Список показывает флаг нарушения, объяснение ИИ и доказательство с переходом к диалогу.
+
+![Фильтр грубых нарушений и раскрытое доказательство](screens/Screenshot%202026-11-08%20at%2010.50.10%E2%80%AFAM.jpg)
+
+</details>
+
+<details>
+<summary><strong>Грубое нарушение отдельно от итогового балла</strong></summary>
+
+Числовая оценка и флаг грубой ошибки отображаются независимо друг от друга.
+
+![Итоговый балл и независимый флаг грубой ошибки](screens/Screenshot%202026-11-08%20at%2010.50.32%E2%80%AFAM.jpg)
+
+</details>
+
+Снимки из [`screens/`](screens/) показывают состояние интерфейса на момент съёмки.
+Изображённые оценки — результаты конкретных запусков, а не экспертная эталонная разметка.
+
+## Быстрый запуск
+
+Нужны запущенный **Docker Desktop / Docker Engine**, **Docker Compose 2.24+**
+и интернет для первой сборки.
+
+**1. Подготовьте конфигурацию.** Из корня репозитория создайте локальный файл,
+если он ещё не существует:
+
+```sh
+if [ ! -f backend/.env ]; then
+  cp backend/.env.example backend/.env
+fi
+```
+
+Заполните `LLM_API_KEY` и `CQA_DATASET_URL` в `backend/.env` своими значениями.
+Существующий приватный `.env` сохраняется. Остальные параметры можно взять из
+[`backend/.env.example`](backend/.env.example).
+
+**2. Запустите приложение одной командой:**
 
 ```sh
 docker compose up -d --build --wait --wait-timeout 120
 ```
 
-- UI: <http://127.0.0.1:5173/#/conversations>
-- API readiness: <http://127.0.0.1:8000/api/v1/health>
-- OpenAPI UI: <http://127.0.0.1:8000/docs>
+| Сервис | Адрес |
+|---|---|
+| **Интерфейс** | [127.0.0.1:5173](http://127.0.0.1:5173/#/conversations) |
+| **Состояние API и БД** | [127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health) |
+| **Swagger / OpenAPI** | [127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) |
+| **PostgreSQL** | `127.0.0.1:55432` |
 
-PostgreSQL is exposed only on `127.0.0.1:55432` by default, avoiding an existing local
-server on 5432. Override `POSTGRES_PORT` and the local `DATABASE_URL` together if needed.
-
-Configure credentials privately in `backend/.env` using `backend/.env.example` for variable
-names; do not overwrite an existing private file. Compose reads root `.env`, then
-`backend/.env` at backend runtime. The selected model is `deepseek/deepseek-v4.1-flash`
-via OpenRouter; an empty LLM_MODEL uses that default. Secrets are excluded from Git and
-Docker build contexts. Compose builds the existing frontend with VITE_API_MODE=live.
-PostgreSQL persists in postgres_data; startup applies migrations and seeds the initial
-eight-criterion rubric. No import or paid evaluation runs on startup.
+При старте применяются миграции и создаётся начальный чек-лист.
+Фронтенд собирается в режиме `live` и обращается к реальному backend через `/api`.
+Импорт и новые платные оценки автоматически при старте не запускаются;
+сохранённая очередь обрабатывается workers backend.
 
 ```sh
-python3 scripts/smoke.py
+# Проверка сервисов и HTTP-интеграции без платных LLM-запросов
 docker compose ps
+python3 scripts/smoke.py
+
+# Остановка с сохранением PostgreSQL в Docker volume
 docker compose down
 ```
 
-`down` retains the DB volume. No downloaded organizer records or customer text are
-included. Standalone mock mode is explicitly labeled and does not represent real LLM results.
+### Настройки модели
 
-## Local development (two terminals, two commands)
+Текущая конфигурация OpenRouter:
 
-Prerequisites: Python **3.12+**, `uv`, Node **22.12+**, npm, and a running Docker daemon
-(the backend script starts only PostgreSQL). First run installs locked dependencies.
+```dotenv
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL=deepseek/deepseek-v4-flash-0731
+LLM_MAX_OUTPUT_TOKENS=32000
+```
+
+`32 000` — максимальное число выходных токенов на запрос, а не обязательный расход.
+Ключи и URL датасета хранятся только на backend; их нельзя помещать в переменные
+`VITE_*`. Файлы `.env` исключены из Git и контекста Docker-сборки.
+
+Compose читает корневой `.env`, затем `backend/.env`; для backend адрес БД заменяется
+на внутренний сервис `db`. Локальный запуск читает те же файлы, причём значения
+окружения процесса имеют приоритет. `CORS_ORIGINS` задаётся JSON-массивом.
+
+## Как проверить диалог
+
+1. Откройте интерфейс и импортируйте группу **DEV**. Ожидаемый состав — 65 разговоров:
+   35 RU, 15 KZ и 15 EN; 60 чатов и 5 расшифровок звонков.
+2. Выберите разговор и запустите оценку. Это обращение к платному API модели.
+3. Проверьте каждый критерий, обоснование и цитаты. Нажмите на доказательство,
+   чтобы перейти к исходной реплике.
+4. При необходимости подайте апелляцию и рассмотрите её в роли ревьюера.
+5. Для другого чек-листа сохраните новую версию и выполните отдельную оценку.
+
+Пакетный платный прогон следует запускать после оценки стоимости и согласования
+объёма. Резерв runner — консервативный расчёт; финансовый лимит ключа на стороне
+провайдера настраивается отдельно. Подробности — в
+[инструкции по DEV-прогонам](docs/DEV_CONTINUATION_RUNBOOK.md).
+
+## Как считается балл
+
+```text
+Итог = 100 × сумма(вес × доля выполнения) / сумма применимых весов
+```
+
+- Для `yes/no` доля выполнения равна `1/0`; для числовой шкалы — значению,
+  делённому на её максимум.
+- Критерии `N/A` исключаются из числителя и знаменателя, поэтому оставшиеся веса
+  перераспределяются пропорционально.
+- Округление выполняется один раз до двух знаков: `Decimal`, `ROUND_HALF_UP`.
+  Это выбранное правило проекта.
+- При нулевой сумме применимых весов результат — `null`.
+- **C08 — отдельный флаг грубой ошибки:** он не добавляет баллы и автоматически
+  не обнуляет числовую оценку.
+
+Точные цитаты и индексы проверяются по сохранённой расшифровке. Некорректный ответ
+модели проходит ограниченную повторную попытку; ошибка не превращается в выдуманную
+успешную оценку. По одному тексту не оцениваются дикция, интонация и акустические паузы.
+
+## Локальная разработка
+
+Нужны **Python 3.12+**, **uv**, **Node.js 22.12+**, **npm** и работающий Docker
+для PostgreSQL. Запускайте команды из корня проекта в двух терминалах:
 
 ```sh
-# Terminal A, from repository root
+# Терминал 1: PostgreSQL, зависимости, миграции и FastAPI
 sh scripts/dev-backend.sh
 ```
 
 ```sh
-# Terminal B, from repository root
+# Терминал 2: зависимости и Vite
 sh scripts/dev-frontend.sh
 ```
 
-Use these scripts instead of running the full Compose stack simultaneously: both
-paths use ports 8000/5173. Vite proxies `/api` to localhost:8000. Stop the local servers
-with Ctrl-C and the DB with `docker compose stop db`.
+Этот режим использует те же порты `8000` и `5173`, что и полный Compose-стек.
+Сначала остановите контейнеры frontend/backend: `docker compose stop frontend backend`.
+Vite проксирует `/api` на локальный backend. Локальные серверы останавливаются через
+`Ctrl+C`, база — командой `docker compose stop db`.
 
-Optional configuration: copy root `.env.example` to root `.env` locally. Never commit
-`.env`. Local backend loads root `.env`, then `backend/.env` (latter overrides);
-process environment wins. Compose also reads backend/.env; DATABASE_URL is overridden to the internal db service. `CORS_ORIGINS` is a
-JSON array of explicit origins, not a comma-separated string. When changing the local
-DB placeholder password, keep `DATABASE_URL` consistent; URL-encode special password
-characters. Existing PostgreSQL volumes retain their original credentials.
+Для явно обозначенной демонстрации без backend можно запустить mock-режим
+из `frontend/`: `VITE_API_MODE=mock npm run dev`. Его данные не являются результатами
+реальных LLM-запросов. В режиме `live` ошибки API не подменяются mock-ответами.
 
-Model/dataset settings are reserved backend-only configuration. Blank pricing is
-unconfigured (`null`), never a zero cost claim. Use backend/.env.example for the current OpenRouter configuration. No secret is
-ever placed in a `VITE_` variable, frontend fixture, browser response or build argument.
+## Проверки
 
-## Checks
+### Backend
 
 ```sh
 cd backend
 uv sync --frozen --python 3.12
 uv run --frozen ruff check .
+uv run --frozen mypy app
 uv run --frozen pytest
+```
+
+По умолчанию тесты используют отдельные SQLite-базы. Для интеграционных тестов
+в изолированных схемах запущенного PostgreSQL и проверки миграций:
+
+```sh
+uv run --frozen pytest --postgres
 uv run --frozen alembic upgrade head
 uv run --frozen alembic check
 ```
 
-Migration CLI checks need the running PostgreSQL from either startup path. Pytest
-uses isolated SQLite DBs without PostgreSQL or credentials; production/Compose always
-uses PostgreSQL. The backend suite covers import, rubric versions, scoring/evidence, provider failures,
-appeals, job recovery and migrations. Also run `uv run --frozen pytest --postgres`
-for disposable PostgreSQL test schemas. PostgreSQL is additionally used in CI.
+### Frontend
 
 ```sh
 cd frontend
@@ -93,57 +247,70 @@ npm run test
 npm run build
 ```
 
-Frontend tests use Node's test runner and jsdom: mock contract reads, pagination,
-evidence integrity, API errors, hash navigation, message focus, safe rendering, pending
-states and retry. `npm run build` produces `frontend/dist/`, with relative asset paths.
-`npm run preview -- --port 5173` serves the static build but has no API proxy; use
-Compose to check same-origin API calls on a production-style server.
+Тесты frontend используют Node.js и jsdom. Для E2E предусмотрен `npm run test:e2e`;
+настройка запуска описана в [`frontend/README.md`](frontend/README.md).
 
-From the repository root:
+### Интеграция
+
+Из корня репозитория:
 
 ```sh
 docker compose config --quiet
 python3 scripts/smoke.py
+python3 -m unittest discover -s scripts/tests -p 'test_submission*.py'
 ```
 
-GitHub Actions runs backend lint/tests/PostgreSQL migrations/readiness, frontend
-lint/tests/build, and Compose validation. Its presence does not mean a remote run occurred.
-
-## Live pipeline and scope
-
-The backend implements all frozen API operations and the existing frontend supports
-import, single-conversation evaluation, results, evidence navigation and appeals.
-Compose defaults to live mode. Standalone Vite defaults to mock: run
-`VITE_API_MODE=live npm run dev` in frontend/ for live mode. There is no mock fallback
-on live API errors. Run one backend API process; restart recovery assumes exclusive
-worker ownership. No Dynamics 365 integration or compatibility test is claimed.
-
-Non-paid real dataset verification from root:
+Проверка реального импорта DEV без LLM-запросов:
 
 ```sh
 docker compose exec -T backend python -m app.audit_live --import-dev
 ```
 
-This fetches and imports DEV twice, validates the expected distribution and checks
-idempotence and preservation without printing customer data or signed URLs.
-
-Explicitly paid, ONE RU conversation through the existing frontend and real API:
-
-```sh
-node scripts/live-smoke.mjs --evaluate-one-ru
-```
-
-Requires frontend/node_modules (npm ci in frontend/). The jsdom smoke uses actual HTTP,
-blocks batch submission and a second evaluation, and prints only safe metadata.
-Each invocation creates a new paid evaluation. Do not run a full 65-record batch
-without a cost estimate and approval. Read-only evidence/scoring recheck:
+Команда импортирует DEV дважды, проверяет идемпотентность, состав и сохранность
+данных, не выводя приватные URL и тексты разговоров.
+Проверка evidence и балла уже сохранённой оценки:
 
 ```sh
 backend/.venv/bin/python scripts/verify-live-evaluation.py EVALUATION_UUID
 ```
 
-See [backend configuration](backend/README.md), [architecture](docs/ARCHITECTURE.md),
-[product specification](docs/01_PRODUCT_SPEC.md), [API contract](docs/02_API_CONTRACT.md),
-[frontend contracts](frontend/CONTRACTS.md), and
-[live integration results](docs/LIVE_INTEGRATION_REPORT.md).
-The API contract and frontend business source are unchanged by this integration.
+GitHub Actions содержит проверки backend, PostgreSQL, frontend и Compose.
+
+## Структура репозитория
+
+```text
+CQA-Control-Tower/
+├── backend/       # FastAPI, ORM, миграции, оценка, evidence, scoring и тесты
+├── frontend/      # HTML / CSS / Vanilla JavaScript, Vite, тесты интерфейса
+├── docs/          # Спецификации, архитектура, аудиты и инструкции
+├── prompts/       # Инструкции для этапов разработки
+├── scripts/       # Smoke-проверки, валидация submission и утилиты
+├── screens/       # Скриншоты интерфейса
+├── results/       # Экспорт результатов после выполнения оценок
+└── compose.yaml   # PostgreSQL + backend + frontend
+```
+
+## Документация
+
+| Раздел | Документ |
+|---|---|
+| Требования и восемь начальных критериев | [Спецификация продукта](docs/01_PRODUCT_SPEC.md) |
+| Схемы запросов и ответов | [API contract](docs/02_API_CONTRACT.md) |
+| Компоненты и взаимодействие | [Архитектура](docs/ARCHITECTURE.md) |
+| Настройка backend | [Backend README](backend/README.md) |
+| Интерфейс и его API | [Frontend README](frontend/README.md) · [Контракты frontend](frontend/CONTRACTS.md) |
+| Реальные подключения и проверки | [Live integration report](docs/LIVE_INTEGRATION_REPORT.md) |
+| Надёжность модели и повторные попытки | [Отчёт об исправлениях LLM](docs/LLM_RELIABILITY_FIX_REPORT.md) |
+| Текущая модель и план перехода | [Flash 0731](docs/MODEL_SWITCH_0731.md) |
+| Язык обоснований RU / KZ / EN | [Исправление языка объяснений](docs/EXPLANATION_LANGUAGE_FIX.md) |
+| Экспорт результатов организаторам | [Submission export runbook](docs/SUBMISSION_EXPORT_RUNBOOK.md) |
+| Действия на контрольном этапе | [Control hour runbook](docs/CONTROL_HOUR_RUNBOOK.md) |
+
+---
+
+<div align="center">
+
+**bda2402** · Freedom Broker Hackathon<br>
+От оценки качества — к проверяемой исходной реплике.
+
+</div>

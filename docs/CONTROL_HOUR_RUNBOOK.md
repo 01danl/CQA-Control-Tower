@@ -43,7 +43,7 @@ The group_id arrives with the release; never assume `PROD`. It must match
 real ID does not match, stop and resolve before spending anything).
 
 ```sh
-export CQA_CONTROL_GROUP='THE_ACTUAL_ORGANIZER_GROUP_ID'
+export CQA_CONTROL_GROUP='FBroker'
 python3 - <<'PY'
 import json, os
 from urllib.request import Request, urlopen
@@ -63,6 +63,12 @@ exactly ten conversations exist, then take the pre-evaluation readiness check
 cd backend
 .venv/bin/python -m app.export_results --group "$CQA_CONTROL_GROUP" --stage prod --check-only
 ```
+
+Released groups (2026-11-08): `FBroker` contains the 10 control chats and is the
+source for `results/prod/results.json`. The separately imported `Swap` group
+contains 3 chats; retain it without evaluations until further organizer instructions.
+Group IDs are case-sensitive. In the website's group input enter `FBroker` or
+`Swap` and select **Открыть группу** to view the already imported records.
 
 ## 2. Generate private reference metadata (free, local)
 

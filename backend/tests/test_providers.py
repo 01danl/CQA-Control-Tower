@@ -83,3 +83,47 @@ def test_model_config_required_no_runtime_stub(settings, session):
     with pytest.raises(ServiceError) as error:
         provider.generate(get_rubric(session, "default", 1), None)
     assert error.value.code == "MODEL_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [("RU", "Russian (RU)"), ("KZ", "Kazakh (KZ)"), ("EN", "English (EN)"),
+     ("unknown", "the dominant language of the transcript")],
+)
+@pytest.mark.parametrize("repair", [False, True])
+def test_explanation_language_is_required_for_initial_and_repair_requests(
+    settings, session, language, expected, repair
+):
+    settings.openai_api_key = SecretStr("synthetic-key")
+    settings.llm_model = "synthetic-model"
+    rubric = get_rubric(session, "default", 1)
+    source = dataset_payload()["data"]["records"][0]
+    source["language"] = language
+    for index, message in enumerate(source["transcript"]):
+        message["message_index"] = index
+    conversation = ConversationDetail(group_id="DEV", **source)
+    requests = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        system = body["messages"][0]["content"]
+        assert f"Required explanation language: {expected}." in system
+        assert "results[].reason" in system and "results[].na_reason" in system
+        assert "Keep evidence quotes exactly as written" in system
+        assert json.loads(body["messages"][1]["content"])["untrusted_conversation"][
+            "transcript"
+        ] == conversation.model_dump(mode="json")["transcript"]
+        if repair:
+            assert "required conversation language" in body["messages"][-1]["content"]
+        return httpx.Response(200, json={
+            "model": "synthetic-model",
+            "choices": [{"message": {"content": json.dumps(valid_output(rubric, conversation))},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+        })
+
+    OpenAIProvider(settings, transport=httpx.MockTransport(handler)).generate(
+        rubric, conversation, ["Repair invalid evidence"] if repair else None
+    )
+    assert len(requests) == 1

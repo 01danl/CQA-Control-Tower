@@ -25,10 +25,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"),
     )
-    llm_model: str | None = "deepseek/deepseek-v4.1-flash"
+    llm_model: str | None = "deepseek/deepseek-v4-flash-0731"
     # None preserves the provider default; changes require a new approved run plan.
     llm_reasoning_effort: Literal["max", "high", "low", "none"] | None = None
-    llm_max_output_tokens: int = Field(default=8192, ge=1024, le=32768)
+    llm_max_output_tokens: int = Field(default=32000, ge=1024, le=32768)
     # False preserves the live provider-default reasoning configuration on every
     # request, including output-limit repairs. When true, a repair attempt that
     # follows MODEL_OUTPUT_LIMIT explicitly sends reasoning disabled so the
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     @classmethod
     def blank_model_uses_default(cls, value):
         return (
-            "deepseek/deepseek-v4.1-flash"
+            "deepseek/deepseek-v4-flash-0731"
             if isinstance(value, str) and not value.strip()
             else value
         )

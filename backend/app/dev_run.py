@@ -45,6 +45,7 @@ from app.rubrics import get_rubric
 
 EVENT = "dev_run_reserved"
 CEILING = Decimal("3.00")
+BILLING_ARCHIVE_DIR = Path(__file__).resolve().parents[1] / ".dev-run-private"
 RUNTIME_KEYS = (
     "llm_model",
     "openai_base_url",
@@ -128,7 +129,7 @@ def ledger(session, hashes):
     ids = reserved_ids | {
         e.evaluation_id
         for e in session.scalars(select(m.Evaluation))
-        if (e.usage or {}).get("model") == MODEL
+        if (e.usage or {}).get("model")
     }
     for eid in ids:
         item = session.get(m.Evaluation, eid)
@@ -152,12 +153,36 @@ def ledger(session, hashes):
             unknown.append(eid)
         else:
             spent += charge
+    # A user-requested data reset must not erase already billed project spending.
+    # Only accounting receipts are retained; no transcripts or predictions.
+    archived_ids = set()
+    for path in sorted(BILLING_ARCHIVE_DIR.glob("billing-before-reset-*.json")):
+        try:
+            for receipt in load(path)["receipts"]:
+                eid = receipt["evaluation_id"]
+                if not isinstance(eid, str) or not eid or eid in archived_ids:
+                    raise ValueError("Invalid or duplicate accounting receipt")
+                archived_ids.add(eid)
+                if eid in ids:
+                    continue  # A transaction may have rolled back after saving its receipt.
+                if receipt["cost_unknown"]:
+                    unknown.append(eid)
+                    continue
+                cost = receipt["recorded_cost_usd"]
+                if not isinstance(cost, str):
+                    raise ValueError("Missing recorded cost")
+                charge = Decimal(cost)
+                if not charge.is_finite() or charge < 0:
+                    raise ValueError("Invalid recorded cost")
+                spent += charge
+        except (ValueError, KeyError, TypeError, OSError, ArithmeticError) as error:
+            raise RunError("RESET_BILLING_ARCHIVE_INVALID_STOP") from error
     return {
         "known_spend_usd": str(spent),
         "unknown_charge_ids": sorted(unknown),
         "pending_ids": sorted(pending),
         "reserved_jobs": len(reserved_ids),
-        "recorded_jobs": len(ids),
+        "recorded_jobs": len(ids | archived_ids),
     }
 
 
@@ -199,10 +224,16 @@ def fetch_quota(settings):
     return quota
 
 
-def verify_integrity(plan):
+def verify_integrity(plan, *, require_current_model=True):
     if digest({k: v for k, v in plan.items() if k != "plan_hash"}) != plan["plan_hash"]:
         raise RunError("PLAN_TAMPERED")
-    if plan.get("group") != "DEV" or plan.get("model") != MODEL or plan.get("team") != "bda2402":
+    if (
+        plan.get("group") != "DEV"
+        or not isinstance(plan.get("model"), str)
+        or not plan["model"].strip()
+        or (require_current_model and plan["model"] != MODEL)
+        or plan.get("team") != "bda2402"
+    ):
         raise RunError("INVALID_PLAN_IDENTITY")
 
 
@@ -244,7 +275,7 @@ def prepare(session, settings, prices, parent=None, quota=None, only_conversatio
     if parent is not None:
         # Archived plans must retain their charges after a reviewed code/config fix.
         # Only the NEW plan must match the current implementation and approval.
-        verify_integrity(parent)
+        verify_integrity(parent, require_current_model=False)
         verify_sources(session, parent)
         lineage = parent["lineage"] + [parent["plan_hash"]]
     verify_lineage(session, lineage)
